@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="XmlNotepad" Language="1033" Version="2.9.0.0" Manufacturer="Lovett Software" UpgradeCode="14C1B5E8-3198-4AF2-B4BC-351017A109D3">
+  <Product Id="*" Name="XmlNotepad" Language="1033" Version="2.9.0.4" Manufacturer="Lovett Software" UpgradeCode="14C1B5E8-3198-4AF2-B4BC-351017A109D3">
     <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade Schedule="afterInstallFinalize" DowngradeErrorMessage="A newer version of [ProductName] is already installed." AllowSameVersionUpgrades="yes" />
     <MediaTemplate />
@@ -70,6 +70,7 @@
         <File Id="Microsoft.Web.WebView2.WinForms.dll" KeyPath="yes" Checksum="yes" />
       </Component>
       <Directory Id="runtimes" Name="runtimes" />
+      <Directory Id="Resources" Name="Resources" />
     </DirectoryRef>
     <DirectoryRef Id="Help" FileSource="$(var.SolutionDir)\drop\Help">
       <Component Id="design.htm" Guid="045549c7-34e5-4e8a-aa8c-a49a678e3ed4">
@@ -91,6 +92,11 @@
       <Directory Id="css" Name="css" />
       <Directory Id="images" Name="images" />
       <Directory Id="js" Name="js" />
+    </DirectoryRef>
+    <DirectoryRef Id="Resources" FileSource="$(var.Application.TargetDir)\Resources">
+      <Component Id="XmlNotepad.template.settings" Guid="ea05b2b8-9442-4dfd-a98e-dd80dfe3b449">
+        <File Id="XmlNotepad.template.settings" KeyPath="yes" Checksum="yes" />
+      </Component>
     </DirectoryRef>
     <DirectoryRef Id="runtimes" FileSource="$(var.Application.TargetDir)\runtimes">
       <Directory Id="winarm64" Name="win-arm64" />
@@ -291,6 +297,7 @@
       <ComponentRef Id="index.html" />
       <ComponentRef Id="install.htm" />
       <ComponentRef Id="readme.md" />
+      <ComponentRef Id="XmlNotepad.template.settings" />
       <ComponentRef Id="WebView2Loader.x64.dll" />
       <ComponentRef Id="WebView2Loader.x86.dll" />
       <ComponentRef Id="WebView2Loader.arm64.dll" />

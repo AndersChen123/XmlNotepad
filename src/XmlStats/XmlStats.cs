@@ -31,8 +31,8 @@ namespace Microsoft.Xml
         private long _piChars;
         private string _newLine = "\n";
         private WhitespaceHandling _whiteSpace = WhitespaceHandling.All;
-        private Stopwatch _watch = new Stopwatch();
-        HashSet<string> _filters = new HashSet<string>();
+        private readonly Stopwatch _watch = new Stopwatch();
+        private readonly HashSet<string> _filters = new HashSet<string>();
 
         private static void PrintUsage()
         {
@@ -286,20 +286,27 @@ namespace Microsoft.Xml
                             break;
                         }
                     case XmlNodeType.Element:
-                        this._elemCount++;
-
-                        if (r.IsEmptyElement)
-                        {
-                            this._emptyCount++;
-                        }
                         int dec = 0;
                         if (hasFilters && this._filters.Contains(r.LocalName))
                         {
                             selected++;
                             if (r.IsEmptyElement) dec = 1;
                         }
-                        NodeStats es = CountNode(this._elements, r.Name);
-                        es.Selected = selected;
+                        if (selected > 0)
+                        {
+                            this._elemCount++;
+                        }
+
+                        if (r.IsEmptyElement && selected > 0)
+                        {
+                            this._emptyCount++;
+                        }
+                        NodeStats es = null;
+                        if (selected > 0)
+                        {
+                            es = CountNode(this._elements, r.Name);
+                            es.Selected = selected;
+                        }
                         elementStack.Push(es);
                         currentElement = es;
 
@@ -570,8 +577,7 @@ namespace Microsoft.Xml
 
         internal static NodeStats CountNode(Dictionary<string, NodeStats> ht, string name)
         {
-            NodeStats es = null;
-            if (!ht.TryGetValue(name, out es))
+            if (!ht.TryGetValue(name, out NodeStats es))
             {                
                 ht[name] = es = new NodeStats(name);
             }

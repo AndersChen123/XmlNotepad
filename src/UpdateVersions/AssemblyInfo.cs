@@ -7,10 +7,10 @@ using System.Runtime.CompilerServices;
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("XmlStats")]
-[assembly: AssemblyDescription("Reports statistics about the elements, attributes and text in XML files.")]
+[assembly: AssemblyTitle("UpdateVersions")]
+[assembly: AssemblyDescription("Synchronizes version info across projects and setup.")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyProduct("XmlStats")]
+[assembly: AssemblyProduct("UpdateVersions")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

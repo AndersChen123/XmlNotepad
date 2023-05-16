@@ -1,6 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="12.0">
-  <UsingTask TaskName="XmlNotepadBuildTasks.SyncVersions" AssemblyFile="$(SolutionDir)BuildTasks\XmlNotepadBuildTasks.dll" />
   <Import Project="$(SolutionDir)/Version/Version.props" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -84,9 +83,8 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\packages\Newtonsoft.Json.13.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
-    <Reference Include="SgmlReaderDll, Version=1.8.28.0, Culture=neutral, PublicKeyToken=d2e0d325f5b08396, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.Xml.SgmlReader.1.8.28\lib\net47\SgmlReaderDll.dll</HintPath>
-      <Private>True</Private>
+    <Reference Include="SgmlReaderDll, Version=1.8.30.0, Culture=neutral, PublicKeyToken=d2e0d325f5b08396, processorArchitecture=MSIL">
+      <HintPath>..\packages\Microsoft.Xml.SgmlReader.1.8.30\lib\net47\SgmlReaderDll.dll</HintPath>
     </Reference>
     <Reference Include="SimpleGoogleAnalytics, Version=1.1.6.0, Culture=neutral, PublicKeyToken=d2e0d325f5b08396, processorArchitecture=MSIL">
       <HintPath>..\packages\SimpleGoogleAnalytics.1.1.6\lib\netstandard2.0\SimpleGoogleAnalytics.dll</HintPath>
@@ -96,6 +94,7 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Deployment" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Net.Http" />
     <Reference Include="System.Security.AccessControl, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <HintPath>..\packages\System.Security.AccessControl.5.0.0\lib\net461\System.Security.AccessControl.dll</HintPath>
       <Private>True</Private>
@@ -105,11 +104,12 @@
     </Reference>
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
-    <Reference Include="XmlDiffPatch, Version=1.0.4.0, Culture=neutral, PublicKeyToken=d2e0d325f5b08396, processorArchitecture=MSIL">
-      <HintPath>..\packages\LovettSoftware.XmlDiff.1.0.4\lib\net47\XmlDiffPatch.dll</HintPath>
+    <Reference Include="XmlDiffPatch, Version=1.0.8.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\LovettSoftware.XmlDiff.1.0.8\lib\net47\XmlDiffPatch.dll</HintPath>
     </Reference>
-    <Reference Include="XmlDiffPatch.View, Version=1.0.4.0, Culture=neutral, PublicKeyToken=d2e0d325f5b08396, processorArchitecture=MSIL">
-      <HintPath>..\packages\LovettSoftware.XmlDiff.1.0.4\lib\net47\XmlDiffPatch.View.dll</HintPath>
+    <Reference Include="XmlDiffPatch.View, Version=1.0.8.0, Culture=neutral, PublicKeyToken=d2e0d325f5b08396, processorArchitecture=MSIL">
+      <HintPath>..\packages\LovettSoftware.XmlDiff.1.0.8\lib\net47\XmlDiffPatch.View.dll</HintPath>
+      <Private>True</Private>
     </Reference>
   </ItemGroup>
   <ItemGroup>
@@ -240,7 +240,7 @@
     <EmbeddedResource Include="..\XmlStats\bin\$(Configuration)\XmlStats.exe">
       <Link>Resources\XmlStats.exe</Link>
     </EmbeddedResource>
-    <Content Include="Resources\XmlNotepad.template.settings" Link="XmlNotepad.template.settings">
+    <Content Include="Resources\XmlNotepad.template.settings">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -377,14 +377,7 @@
   <PropertyGroup>
     <PreBuildEvent>copy /y "$(SolutionDir)FontBuilder\bin\$(Configuration)\FontBuilder.dll" "$(TargetDir)FontBuilder.dll"</PreBuildEvent>
   </PropertyGroup>
-  <Target Name="SyncVersionsTarget">
-    <SyncVersions MasterVersionFile="$(SolutionDir)Version\Version.props" CSharpVersionFile="$(SolutionDir)Version\Version.cs" WixFile="$(SolutionDir)XmlNotepadSetup\Product.wxs" ApplicationProjectFile="$(ProjectPath)" AppManifestFile="$(SolutionDir)XmlNotepadPackage\Package.appxmanifest" DropDir="$(SolutionDir)drop" UpdatesFile="$(SolutionDir)Updates\Updates.xml">
-      <Output TaskParameter="WebView2Version" PropertyName="WebView2Version" />
-    </SyncVersions>
-    <Message Importance="High" Text="Using WebView2 version $(WebView2Version)" />
-  </Target>
   <PropertyGroup>
-    <CoreBuildDependsOn>$(CoreBuildDependsOn);SyncVersionsTarget</CoreBuildDependsOn>
     <WebView2Runtimes>$(MSBuildThisFileDirectory)\..\packages\Microsoft.Web.WebView2.$(WebView2Version)\runtimes</WebView2Runtimes>
   </PropertyGroup>
   <ItemGroup>

@@ -66,7 +66,7 @@ namespace UnitTests
 
             SettingsLoader ls = new SettingsLoader();
             testSettings.SetDefaults();
-            ls.LoadSettings(testSettings, true);
+            ls.LoadSettings(testSettings, SettingsLocation.Test);
             return testSettings;
         }
 
@@ -125,9 +125,9 @@ namespace UnitTests
             }
         }
 
-        Window LaunchNotepad(bool debugMouse = false)
+        Window LaunchNotepad(bool debugMouse = false, bool testTemplate = false)
         {
-            this.window = LaunchNotepad(null, debugMouse: debugMouse);
+            this.window = LaunchNotepad(null, debugMouse: debugMouse, testTemplate: testTemplate);
             if (!debugMouse)
             {
                 this.window.InvokeMenuItem("newToolStripMenuItem");
@@ -136,10 +136,14 @@ namespace UnitTests
             return window;
         }
 
-        Window LaunchNotepad(string filename, bool testSettings = true, bool debugMouse = false)
+        Window LaunchNotepad(string filename, bool testSettings = true, bool debugMouse = false, bool testTemplate = false)
         {
             string args = "\"" + filename + "\"";
-            if (testSettings)
+            if (testTemplate)
+            {
+                args = "-template " + args;
+            }
+            else if (testSettings)
             {
                 args = "-test " + args;
             }
@@ -242,6 +246,7 @@ namespace UnitTests
             bounds = window.GetClientBounds();
             var center = xPosLabel.Bounds.Center();
             var b2 = statusBox.Bounds;
+            // visual check if calibration is needed
             sim.Mouse.MoveMouseTo(center.X, center.Y);
             sim.Mouse.MoveMouseTo(bounds.Left, bounds.Bottom);
             sim.Mouse.MoveMouseTo(b2.Left, b2.Bottom);
@@ -264,13 +269,22 @@ namespace UnitTests
                 int ax = previousX;
                 int ay = previousY;
                 // wait for fields to update
-                while (ax == previousX || ay == previousY)
+                int retries = 10;
+                while ((ax == previousX || ay == previousY) && retries > 0)
                 {
                     Thread.Sleep(30);
                     // winforms mouse move is relative to content not including window frame
                     ax = int.Parse(xPattern.Current.Value) + bounds.Left;
                     ay = int.Parse(yPattern.Current.Value) + bounds.Top;
+                    retries--;
                 }
+
+                if (ax > inner.Right || ay > inner.Bottom || retries == 0)
+                {
+                    // we already stepped outside our box, so we're done!
+                    break;
+                }
+
                 previousX = ax;
                 previousY = ay;
 
@@ -280,16 +294,16 @@ namespace UnitTests
                     Expected = new Point(x, y),
                     Actual = new Point(ax, ay)
                 });
-
-                if (ax > inner.Right || ay > inner.Bottom)
-                {
-                    // we already stepped outside our box, so we're done!
-                    break;
-                }
             }
 
             this.calibration = calibration;
             this.sim.Mouse.Calibrate(calibration);
+
+            // visual check if calibration is worked
+            sim.Mouse.MoveMouseTo(center.X, center.Y);
+            sim.Mouse.MoveMouseTo(bounds.Left, bounds.Bottom);
+            sim.Mouse.MoveMouseTo(b2.Left, b2.Bottom);
+
             this.calibrated = true;
             // close the form
             window.Close();
@@ -1322,6 +1336,7 @@ namespace UnitTests
             popup = w.WaitForPopup();
 
             // save the changes!
+            w.Closed = true;
             popup.SendKeystrokes("%Y");
         }
 
@@ -1610,6 +1625,29 @@ Prefix 'user' is not defined. ");
 
         [TestMethod]
         [Timeout(TestMethodTimeout)]
+        public void TestHtmlConversion()
+        {
+            var url = "https://github.com/microsoft/XmlNotepad/";
+
+            Trace.WriteLine("TestHtmlConversion==========================================================");
+
+            var w = LaunchNotepad();
+
+            MainWindowWrapper xw = new MainWindowWrapper(w);
+            xw.LoadXmlAddress(url, null);
+
+            var findDialog = OpenFindDialog();
+            findDialog.Window.SendKeystrokes("XML Notepad is a Windows program{ENTER}");
+            Sleep(500);
+
+            findDialog.Window.DismissPopUp("{ESC}");
+            w.SendKeystrokes("^c{ESC}");
+            CheckClipboard("XML Notepad is a Windows program");
+            Sleep(200);
+        }
+
+        [TestMethod]
+        [Timeout(TestMethodTimeout)]
         public void TestFind()
         {
             Trace.WriteLine("TestFind==========================================================");
@@ -1713,7 +1751,7 @@ Prefix 'user' is not defined. ");
 
             List<string> found = new List<string>();
 
-            for (int i = 0; i < 7; i++)
+            for (int i = 0; i < 8; i++)
             {
                 w.Activate();
                 findDialog.FindNext();
@@ -1721,15 +1759,15 @@ Prefix 'user' is not defined. ");
                 w.WaitForInteractive();
                 var node = this.NodeTextView.GetSelectedChild();
                 var value = node.SimpleValue;
-                found.Add(value);
+                if (!string.IsNullOrEmpty(value)) 
+                    found.Add(value);
             }
 
-            Assert.AreEqual(
-                new string[] { "Apple", "Banana", "Grape", "Peach", "This contains the 'item' text also",
-                "This contains the 'item' text also", "Watermelon" },
-                found.ToArray(), 
-                "The found items were: " + string.Join(",", found));
+            string[] expected = new string[] { "Apple", "Banana", "Grape", "Peach",
+                "This contains the 'item' text also",
+                "This contains the 'item' text also", "Watermelon" };
 
+            this.AssertArraysEqual(expected, found.ToArray());
         }
 
         [TestMethod]
@@ -2248,9 +2286,23 @@ Prefix 'user' is not defined. ");
 
         [TestMethod]
         [Timeout(TestMethodTimeout)]
+        public void TestSettingsTemplate()
+        {
+            Trace.WriteLine("TestAccessibility==========================================================");
+            string testFile = _testDir + "UnitTests\\test1.xml";
+            Window w = this.LaunchNotepad(testFile, testTemplate:true);
+            Sleep(1000);
+            // Get AutomationWrapper to selected node in the tree.
+            AutomationWrapper tree = this.TreeView;
+            AutomationWrapper root = tree.GetChild(3); // Root
+            root.Select();
+            CheckNodeName(root, "Root");
+        }
+
+        [TestMethod]
+        [Timeout(TestMethodTimeout)]
         public void TestAccessibility()
         {
-
             Trace.WriteLine("TestAccessibility==========================================================");
             string testFile = _testDir + "UnitTests\\test1.xml";
             Window w = this.LaunchNotepad(testFile);
@@ -2539,6 +2591,61 @@ Prefix 'user' is not defined. ");
 
             Sleep(1000);
             this.SaveAndCompare("out.xml", "emp.xml");
+        }
+
+
+        [TestMethod]
+        [Timeout(TestMethodTimeout)]
+        public void TestGotoIdRef()
+        {
+            Trace.WriteLine("TestGotoIdRef==========================================================");
+            string testFile = _testDir + "UnitTests\\patients.xml";
+            var w = this.LaunchNotepad(testFile);
+
+            Sleep(1000);
+
+            Trace.WriteLine("Test goto definition on element containing an IDREF attribute");
+            w.InvokeAsyncMenuItem("findToolStripMenuItem");
+            var popup = w.WaitForPopup();
+            FindDialog fd = new FindDialog(popup);
+            fd.UseRegex = false;
+            fd.UseXPath = false;
+            fd.UseWholeWord = false;
+            fd.FindString = "medref";
+            popup.SendKeystrokes("{ENTER}");
+            popup.DismissPopUp("{ESC}");
+            Sleep(100);
+
+            this.TreeView.SetFocus();
+            w.SendKeystrokes("{TAB}");
+            w.SendKeystrokes("{F12}");
+            Sleep(100);
+
+            // should be on the <medicine> element.
+            CheckNodeName("medID");
+            CheckNodeValue("M1");
+
+            Trace.WriteLine("Test goto definition on an IDREF attribute");
+            w.InvokeAsyncMenuItem("findToolStripMenuItem");
+            popup = w.WaitForPopup();
+            fd = new FindDialog(popup);
+            fd.UseRegex = false;
+            fd.UseXPath = false;
+            fd.UseWholeWord = false;
+            fd.FindString = "docref";
+            popup.SendKeystrokes("{ENTER}");
+            popup.DismissPopUp("{ESC}");
+            Sleep(100);
+
+            this.TreeView.SetFocus();
+            w.SendKeystrokes("{TAB}{RIGHT}{DOWN}");
+            w.SendKeystrokes("{F12}");
+
+            Sleep(100);
+
+            // should be on the <doctor> element.
+            CheckNodeName("docID");
+            CheckNodeValue("D37");
         }
 
         [TestMethod]
