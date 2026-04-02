@@ -7,29 +7,32 @@ on:
   # Triggers the workflow on push or pull request events but only for the main branch
   push:
     branches: [ master ]
+    paths-ignore:
+      - 'src/**'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+
+permissions:
+    contents: write
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6.0.2
 
       - name: Install pip
         run: python3 -m pip install --upgrade pip setuptools wheel
 
       - name: Install MkDocs
         run: |
-          pip install mkdocs
-          pip install mkdocs-macros-plugin
+          pip install mkdocs mkdocs-macros-plugin
 
       - name: MkDocs build
         run: mkdocs build

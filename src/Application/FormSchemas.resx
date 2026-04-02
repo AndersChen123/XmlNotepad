@@ -199,7 +199,7 @@
     <value>clearToolStripMenuItem</value>
   </data>
   <data name="clearToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>154, 22</value>
+    <value>204, 22</value>
   </data>
   <data name="clearToolStripMenuItem.Text" xml:space="preserve">
     <value>&amp;Clear</value>
@@ -208,10 +208,19 @@
     <value>addSchemasToolStripMenuItem</value>
   </data>
   <data name="addSchemasToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>154, 22</value>
+    <value>204, 22</value>
   </data>
   <data name="addSchemasToolStripMenuItem.Text" xml:space="preserve">
     <value>&amp;Add schemas...</value>
+  </data>
+  <data name="generateXMLInstanceToolStripMenuItem.AccessibleName" xml:space="preserve">
+    <value>generateXMLInstanceToolStripMenuItem</value>
+  </data>
+  <data name="generateXMLInstanceToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>204, 22</value>
+  </data>
+  <data name="generateXMLInstanceToolStripMenuItem.Text" xml:space="preserve">
+    <value>&amp;Generate XML instance...</value>
   </data>
   <data name="fileToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
     <value>37, 20</value>
@@ -448,6 +457,12 @@
     <value>addSchemasToolStripMenuItem</value>
   </data>
   <data name="&gt;&gt;addSchemasToolStripMenuItem.Type" xml:space="preserve">
+    <value>System.Windows.Forms.ToolStripMenuItem, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
+  <data name="&gt;&gt;generateXMLInstanceToolStripMenuItem.Name" xml:space="preserve">
+    <value>generateXMLInstanceToolStripMenuItem</value>
+  </data>
+  <data name="&gt;&gt;generateXMLInstanceToolStripMenuItem.Type" xml:space="preserve">
     <value>System.Windows.Forms.ToolStripMenuItem, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
   <data name="&gt;&gt;editToolStripMenuItem.Name" xml:space="preserve">

@@ -153,6 +153,24 @@ namespace XmlNotepad {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Format each attribute on a new line with matching indentation..
+        /// </summary>
+        public static string AttributesOnNewLineDescription {
+            get {
+                return ResourceManager.GetString("AttributesOnNewLineDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Attributes on a new line.
+        /// </summary>
+        public static string AttributesOnNewLineProperty {
+            get {
+                return ResourceManager.GetString("AttributesOnNewLineProperty", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Autoformat long lines instead of prompting.
         /// </summary>
         public static string AutoFormatLongLinesDescriptions {
@@ -383,6 +401,15 @@ namespace XmlNotepad {
         public static string DeleteCommand {
             get {
                 return ResourceManager.GetString("DeleteCommand", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The file you are editing has been changed on disk but you also have unsaved edits. Would you like to discard your edits and reload this file?.
+        /// </summary>
+        public static string DirtyWhileFileChangedOnDiskPrompt {
+            get {
+                return ResourceManager.GetString("DirtyWhileFileChangedOnDiskPrompt", resourceCulture);
             }
         }
         
@@ -931,6 +958,25 @@ namespace XmlNotepad {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Maximum number of nodes that have indexed line and column information so validation errors can be linked to those lines.
+        ///    This is limited because it takes a lot of extra memory and can make editing very large XML files slower..
+        /// </summary>
+        public static string MaximumLineIndexDescription {
+            get {
+                return ResourceManager.GetString("MaximumLineIndexDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Maximum nodes for validation.
+        /// </summary>
+        public static string MaximumLineIndexProperty {
+            get {
+                return ResourceManager.GetString("MaximumLineIndexProperty", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to What is the maximum line length before prompting for reformatting?.
         /// </summary>
         public static string MaximumLineLengthDescription {
@@ -1057,6 +1103,24 @@ namespace XmlNotepad {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to No file is loaded into XML Notepad.
+        /// </summary>
+        public static string NoFileLoaded {
+            get {
+                return ResourceManager.GetString("NoFileLoaded", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to No Stats.
+        /// </summary>
+        public static string NoStats {
+            get {
+                return ResourceManager.GetString("NoStats", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Internal Error: node is not a child.
         /// </summary>
         public static string NotAChild {
@@ -1125,6 +1189,42 @@ namespace XmlNotepad {
         public static string PiColorDescription {
             get {
                 return ResourceManager.GetString("PiColorDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Preserve Whitespace.
+        /// </summary>
+        public static string PreserveWhitespace {
+            get {
+                return ResourceManager.GetString("PreserveWhitespace", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Preserve all whitespace in XML document so you can see the Whitespace nodes in the tree..
+        /// </summary>
+        public static string PreserveWhitespaceDescription {
+            get {
+                return ResourceManager.GetString("PreserveWhitespaceDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Prompt before reload.
+        /// </summary>
+        public static string PromptOnReload {
+            get {
+                return ResourceManager.GetString("PromptOnReload", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Whether to prompt before auto-reloading file changed on disk.
+        /// </summary>
+        public static string PromptOnReloadDescription {
+            get {
+                return ResourceManager.GetString("PromptOnReloadDescription", resourceCulture);
             }
         }
         
@@ -1282,7 +1382,7 @@ namespace XmlNotepad {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Saved.
+        ///   Looks up a localized string similar to Saved in {0}.
         /// </summary>
         public static string SavedStatus {
             get {
@@ -1323,6 +1423,69 @@ namespace XmlNotepad {
         public static string SaveExpandedIncludesPrompt {
             get {
                 return ResourceManager.GetString("SaveExpandedIncludesPrompt", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Special names that are promoted even without schema information..
+        /// </summary>
+        public static string SchemaAwareNamesDescription {
+            get {
+                return ResourceManager.GetString("SchemaAwareNamesDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Special names.
+        /// </summary>
+        public static string SchemaAwareNamesName {
+            get {
+                return ResourceManager.GetString("SchemaAwareNamesName", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Schema aware text color.
+        /// </summary>
+        public static string SchemaAwareTextColor {
+            get {
+                return ResourceManager.GetString("SchemaAwareTextColor", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Color for schema aware text that is promoted to the parent element..
+        /// </summary>
+        public static string SchemaAwareTextColorDescription {
+            get {
+                return ResourceManager.GetString("SchemaAwareTextColorDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Promote xsd keys and ids from element content up to the element name row in the TreeView..
+        /// </summary>
+        public static string SchemaAwareTextDescription {
+            get {
+                return ResourceManager.GetString("SchemaAwareTextDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Show schema aware text.
+        /// </summary>
+        public static string SchemaAwareTextName {
+            get {
+                return ResourceManager.GetString("SchemaAwareTextName", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Schema Options.
+        /// </summary>
+        public static string SchemaCategory {
+            get {
+                return ResourceManager.GetString("SchemaCategory", resourceCulture);
             }
         }
         
@@ -1482,6 +1645,42 @@ namespace XmlNotepad {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to and {0} {1}.
+        /// </summary>
+        public static string TooltipFacetJoiner {
+            get {
+                return ResourceManager.GetString("TooltipFacetJoiner", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The length of the value must be {0} {1}.
+        /// </summary>
+        public static string TooltipFacetLength {
+            get {
+                return ResourceManager.GetString("TooltipFacetLength", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The total number of digits must not exceed {0}..
+        /// </summary>
+        public static string TooltipFacetTotalDigits {
+            get {
+                return ResourceManager.GetString("TooltipFacetTotalDigits", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Value must be {0} {1}.
+        /// </summary>
+        public static string TooltipFacetValue {
+            get {
+                return ResourceManager.GetString("TooltipFacetValue", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Click here to execute XSLT transform.
         /// </summary>
         public static string TransformButtonTooltip {
@@ -1568,6 +1767,42 @@ namespace XmlNotepad {
         public static string UpdateCategory {
             get {
                 return ResourceManager.GetString("UpdateCategory", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Update Frequency.
+        /// </summary>
+        public static string UpdateFrequency {
+            get {
+                return ResourceManager.GetString("UpdateFrequency", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to How often to check for updates in dd.hh:mm:ss format.
+        /// </summary>
+        public static string UpdateFrequencyDescription {
+            get {
+                return ResourceManager.GetString("UpdateFrequencyDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Update Frequency timespan invalid format, it must be dd.hh:mm:ss..
+        /// </summary>
+        public static string UpdateFrequencyFormatError {
+            get {
+                return ResourceManager.GetString("UpdateFrequencyFormatError", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Update Frequency cannot be less than 30 minutes.
+        /// </summary>
+        public static string UpdateFrequencyMinError {
+            get {
+                return ResourceManager.GetString("UpdateFrequencyMinError", resourceCulture);
             }
         }
         
@@ -1707,6 +1942,24 @@ namespace XmlNotepad {
         public static string XmlDiffErrorCaption {
             get {
                 return ResourceManager.GetString("XmlDiffErrorCaption", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to .
+        /// </summary>
+        public static string XmlDiffHideIdenticalDescription {
+            get {
+                return ResourceManager.GetString("XmlDiffHideIdenticalDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Hide identical.
+        /// </summary>
+        public static string XmlDiffHideIdenticalProperty {
+            get {
+                return ResourceManager.GetString("XmlDiffHideIdenticalProperty", resourceCulture);
             }
         }
         

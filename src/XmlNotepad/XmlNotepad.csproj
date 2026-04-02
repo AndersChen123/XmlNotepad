@@ -1,7 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="12.0">
-  <Import Project="..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\build\Microsoft.CodeAnalysis.NetAnalyzers.props" Condition="Exists('..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\build\Microsoft.CodeAnalysis.NetAnalyzers.props')" />
-  <Import Project="$(SolutionDir)/Version/Version.props" />
+  <Import Project="$(ProjectDir)..\Version\Version.props" />
   <PropertyGroup>
     <ProjectType>Local</ProjectType>
     <ProductVersion>8.0.50727</ProductVersion>
@@ -29,7 +28,7 @@
     <GenerateManifests>false</GenerateManifests>
     <UpgradeBackupLocation>
     </UpgradeBackupLocation>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <OldToolsVersion>3.5</OldToolsVersion>
     <PublishUrl>publish\</PublishUrl>
     <Install>true</Install>
@@ -105,12 +104,23 @@
     <Compile Include="AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="AsyncXslt.cs" />
     <Compile Include="Brushes.cs" />
     <Compile Include="Builders.cs" />
     <Compile Include="Commands.cs">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="EditableView.cs" />
+    <Compile Include="FormTransformProgress.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FormTransformProgress.Designer.cs">
+      <DependentUpon>FormTransformProgress.cs</DependentUpon>
+    </Compile>
+    <Compile Include="HiddenMenuItems.cs" />
+    <Compile Include="HiddenMenuItems.Designer.cs">
+      <DependentUpon>HiddenMenuItems.cs</DependentUpon>
+    </Compile>
     <Compile Include="HLSColor.cs" />
     <Compile Include="IntelliTip.cs" />
     <Compile Include="localizableattributes.cs" />
@@ -152,6 +162,7 @@
     </Compile>
     <Compile Include="XmlTreeViewFindTarget.cs">
     </Compile>
+    <Compile Include="XsdInstanceGenerator.cs" />
     <Compile Include="XsltControl.cs" />
     <Compile Include="XsltControl.Designer.cs">
       <DependentUpon>XsltControl.cs</DependentUpon>
@@ -162,6 +173,9 @@
     <Compile Include="XsltViewer.Designer.cs">
       <DependentUpon>XsltViewer.cs</DependentUpon>
     </Compile>
+    <EmbeddedResource Include="FormTransformProgress.resx">
+      <DependentUpon>FormTransformProgress.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="NodeTextView.resx">
       <DependentUpon>NodeTextView.cs</DependentUpon>
       <SubType>Designer</SubType>
@@ -238,14 +252,14 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Accessibility" />
-    <Reference Include="Microsoft.Web.WebView2.Core, Version=1.0.1774.30, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.Web.WebView2.1.0.1774.30\lib\net45\Microsoft.Web.WebView2.Core.dll</HintPath>
+    <Reference Include="Microsoft.Web.WebView2.Core, Version=1.0.3595.46, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
+      <HintPath>..\packages\Microsoft.Web.WebView2.1.0.3595.46\lib\net462\Microsoft.Web.WebView2.Core.dll</HintPath>
     </Reference>
-    <Reference Include="Microsoft.Web.WebView2.WinForms, Version=1.0.1774.30, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.Web.WebView2.1.0.1774.30\lib\net45\Microsoft.Web.WebView2.WinForms.dll</HintPath>
+    <Reference Include="Microsoft.Web.WebView2.WinForms, Version=1.0.3595.46, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
+      <HintPath>..\packages\Microsoft.Web.WebView2.1.0.3595.46\lib\net462\Microsoft.Web.WebView2.WinForms.dll</HintPath>
     </Reference>
-    <Reference Include="Microsoft.Web.WebView2.Wpf, Version=1.0.1774.30, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.Web.WebView2.1.0.1774.30\lib\net45\Microsoft.Web.WebView2.Wpf.dll</HintPath>
+    <Reference Include="Microsoft.Web.WebView2.Wpf, Version=1.0.3595.46, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
+      <HintPath>..\packages\Microsoft.Web.WebView2.1.0.3595.46\lib\net462\Microsoft.Web.WebView2.Wpf.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Data" />
@@ -254,11 +268,11 @@
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
-    <Reference Include="XmlDiffPatch, Version=1.0.8.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\LovettSoftware.XmlDiff.1.0.8\lib\net47\XmlDiffPatch.dll</HintPath>
+    <Reference Include="XmlDiffPatch, Version=1.1.0.0, Culture=neutral, PublicKeyToken=d2e0d325f5b08396, processorArchitecture=MSIL">
+      <HintPath>..\packages\LovettSoftware.XmlDiff.1.1.0\lib\net47\XmlDiffPatch.dll</HintPath>
     </Reference>
-    <Reference Include="XmlDiffPatch.View, Version=1.0.8.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\LovettSoftware.XmlDiff.1.0.8\lib\net47\XmlDiffPatch.View.dll</HintPath>
+    <Reference Include="XmlDiffPatch.View, Version=1.1.0.0, Culture=neutral, PublicKeyToken=d2e0d325f5b08396, processorArchitecture=MSIL">
+      <HintPath>..\packages\LovettSoftware.XmlDiff.1.1.0\lib\net47\XmlDiffPatch.View.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
@@ -294,10 +308,6 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <Analyzer Include="..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\analyzers\dotnet\cs\Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll" />
-    <Analyzer Include="..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\analyzers\dotnet\cs\Microsoft.CodeAnalysis.NetAnalyzers.dll" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="..\Model\Model.csproj">
       <Project>{ccb469f3-9f2b-4ca2-9beb-e0b54aeefa6a}</Project>
       <Name>Model</Name>
@@ -310,14 +320,11 @@
     <PostBuildEvent>
     </PostBuildEvent>
   </PropertyGroup>
+  <Import Project="..\packages\Microsoft.Web.WebView2.1.0.3595.46\build\Microsoft.Web.WebView2.targets" Condition="Exists('..\packages\Microsoft.Web.WebView2.1.0.3595.46\build\Microsoft.Web.WebView2.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
-    <Error Condition="!Exists('..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\build\Microsoft.CodeAnalysis.NetAnalyzers.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\build\Microsoft.CodeAnalysis.NetAnalyzers.props'))" />
-    <Error Condition="!Exists('..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\build\Microsoft.CodeAnalysis.NetAnalyzers.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\build\Microsoft.CodeAnalysis.NetAnalyzers.targets'))" />
-    <Error Condition="!Exists('..\packages\Microsoft.Web.WebView2.1.0.1774.30\build\Microsoft.Web.WebView2.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Web.WebView2.1.0.1774.30\build\Microsoft.Web.WebView2.targets'))" />
+    <Error Condition="!Exists('..\packages\Microsoft.Web.WebView2.1.0.3595.46\build\Microsoft.Web.WebView2.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Web.WebView2.1.0.3595.46\build\Microsoft.Web.WebView2.targets'))" />
   </Target>
-  <Import Project="..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\build\Microsoft.CodeAnalysis.NetAnalyzers.targets" Condition="Exists('..\packages\Microsoft.CodeAnalysis.NetAnalyzers.7.0.1\build\Microsoft.CodeAnalysis.NetAnalyzers.targets')" />
-  <Import Project="..\packages\Microsoft.Web.WebView2.1.0.1774.30\build\Microsoft.Web.WebView2.targets" Condition="Exists('..\packages\Microsoft.Web.WebView2.1.0.1774.30\build\Microsoft.Web.WebView2.targets')" />
 </Project>

@@ -28,8 +28,6 @@ namespace UnitTests
     {
         const int TestMethodTimeout = 300000; // 5 minutes
         private readonly string _testDir;
-        private bool calibrated;
-        private List<MouseCalibration> calibration;
         private Settings testSettings;
 
         public UnitTest1()
@@ -77,40 +75,9 @@ namespace UnitTests
             // Find the test settings we care about.
             var screen = Screen.PrimaryScreen.WorkingArea;
             Size s = (Size)testSettings["PrimaryScreenSize"];
-            var points = (Point[])testSettings["MouseCalibration"];
-            if (points.Length > 10 && s == screen.Size)
-            {
-                var calibration = new List<MouseCalibration>();
-                for (int i = 0; i + 1 < points.Length; i += 2)
-                {
-                    Point expected = points[i];
-                    Point actual = points[i + 1];
-                    calibration.Add(new MouseCalibration() { Expected = expected, Actual = actual });
-                }
-                this.calibration = calibration;
-                sim.Mouse.Calibrate(calibration);
-                this.calibrated = true;
-            }
-
             // reset the test settings before each test.
             testSettings.SetDefaults();
-
-            // Now calibrate the mouse once
-            if (!this.calibrated)
-            {
-                TestCalibrateMouse();
-            }
-
-            // Always restore the updated calibration settings.
-            points = new Point[this.calibration.Count * 2];
-            int pos = 0;
-            foreach (var c in this.calibration)
-            {
-                points[pos++] = c.Expected;
-                points[pos++] = c.Actual;
-            }
             testSettings["PrimaryScreenSize"] = screen.Size;
-            testSettings["MouseCalibration"] = points;
 
             // Save the reset settings so next LaunchNotepad picks them up
             testSettings.Save(testSettings.FileName);
@@ -152,7 +119,17 @@ namespace UnitTests
                 args = "-debugMouse " + args;
             }
             this.window = LaunchApp(Directory.GetCurrentDirectory() + @"\..\..\..\drop\XmlNotepad.exe", args, "FormMain");
+            this.DisableCapsLock();
             return window;
+        }
+
+        AutomationWrapper ErrorList
+        {
+            get
+            {
+                AutomationWrapper grid = this.window.FindDescendant("DataGridView");
+                return grid;
+            }
         }
 
 
@@ -188,125 +165,20 @@ namespace UnitTests
         {
             get
             {
-                AutomationWrapper cset = this.window.FindPopup("CompletionSet");
-                if (!cset.IsVisible)
+                // Sometimes the intellisense dropdown can take a while to appears, especially
+                // in the case where it is listing all fonts on the system!
+                AutomationWrapper cset = this.TryFindNodeTextViewCompletionPopup();
+                if (cset == null)
                 {
-                    throw new Exception("CompletionSet is not visible");
+                    throw new Exception("CompletionSet is not visible after 10 seconds");
                 }
                 return cset;
             }
         }
 
-        [TestMethod]
-        [Timeout(TestMethodTimeout)]
-        public void TestCalibrateMouse()
+        AutomationWrapper TryFindNodeTextViewCompletionPopup(int timeout = 100, int retries = 10)
         {
-            List<MouseCalibration> calibration = new List<MouseCalibration>();
-            var screen = Screen.PrimaryScreen.WorkingArea;
-
-            Rectangle bounds = Rectangle.Empty;
-            var window = LaunchNotepad(debugMouse: true);
-            window.WaitForInteractive();
-            window.SetWindowPosition(screen.Left, screen.Top);
-            window.SetWindowSize(screen.Width, screen.Height);
-            window.WaitForInteractive();
-            Sleep(1000);
-
-            var xPosLabel = window.FindDescendant("XPosition");
-            var yPosLabel = window.FindDescendant("YPosition");
-            var statusBox = window.FindDescendant("Status");
-            ValuePattern xPattern = null;
-            ValuePattern yPattern = null;
-            ValuePattern sPattern = null;
-            if (xPosLabel.AutomationElement.TryGetCurrentPattern(ValuePattern.Pattern, out object o))
-            {
-                xPattern = (ValuePattern)o;
-            }
-            else
-            {
-                Assert.Fail("xPosition TextBox has no ValuePattern?");
-            }
-            if (yPosLabel.AutomationElement.TryGetCurrentPattern(ValuePattern.Pattern, out object yo))
-            {
-                yPattern = (ValuePattern)yo;
-            }
-            else
-            {
-                Assert.Fail("yPosition TextBox has no ValuePattern?");
-            }
-            if (statusBox.AutomationElement.TryGetCurrentPattern(ValuePattern.Pattern, out object so))
-            {
-                sPattern = (ValuePattern)so;
-            }
-            else
-            {
-                Assert.Fail("yPosition TextBox has no ValuePattern?");
-            }
-
-            bounds = window.GetClientBounds();
-            var center = xPosLabel.Bounds.Center();
-            var b2 = statusBox.Bounds;
-            // visual check if calibration is needed
-            sim.Mouse.MoveMouseTo(center.X, center.Y);
-            sim.Mouse.MoveMouseTo(bounds.Left, bounds.Bottom);
-            sim.Mouse.MoveMouseTo(b2.Left, b2.Bottom);
-
-            Rectangle inner = bounds;
-            inner.Inflate(-20, -20);
-            int steps = 60;
-            int previousX = 0;
-            int previousY = 0;
-            for (int i = 0; i < steps; i++)
-            {
-                int x = (int)(inner.Left + ((double)i * inner.Width) / steps);
-                int y = (int)(inner.Top + ((double)i * inner.Height) / steps);
-                sim.Mouse.MoveMouseTo(x, y);
-                while (string.IsNullOrEmpty(xPattern.Current.Value) || string.IsNullOrEmpty(yPattern.Current.Value))
-                {
-                    sim.Mouse.MoveMouseTo(x, y);
-                    Thread.Sleep(30);
-                }
-                int ax = previousX;
-                int ay = previousY;
-                // wait for fields to update
-                int retries = 10;
-                while ((ax == previousX || ay == previousY) && retries > 0)
-                {
-                    Thread.Sleep(30);
-                    // winforms mouse move is relative to content not including window frame
-                    ax = int.Parse(xPattern.Current.Value) + bounds.Left;
-                    ay = int.Parse(yPattern.Current.Value) + bounds.Top;
-                    retries--;
-                }
-
-                if (ax > inner.Right || ay > inner.Bottom || retries == 0)
-                {
-                    // we already stepped outside our box, so we're done!
-                    break;
-                }
-
-                previousX = ax;
-                previousY = ay;
-
-                Debug.WriteLine("{0}, {1}  => {2}, {3}  => {4}, {5}", x, y, ax, ay, x - ax, y - ay);
-                calibration.Add(new MouseCalibration()
-                {
-                    Expected = new Point(x, y),
-                    Actual = new Point(ax, ay)
-                });
-            }
-
-            this.calibration = calibration;
-            this.sim.Mouse.Calibrate(calibration);
-
-            // visual check if calibration is worked
-            sim.Mouse.MoveMouseTo(center.X, center.Y);
-            sim.Mouse.MoveMouseTo(bounds.Left, bounds.Bottom);
-            sim.Mouse.MoveMouseTo(b2.Left, b2.Bottom);
-
-            this.calibrated = true;
-            // close the form
-            window.Close();
+            return this.window.TryFindPopup("CompletionSet", timeout, retries);
         }
 
         [TestMethod]
@@ -447,6 +319,7 @@ namespace UnitTests
                         case XmlNodeType.ProcessingInstruction:
                             children = true;
                             w.InvokeMenuItem(openElement ? "PIChildToolStripMenuItem" : "PIAfterToolStripMenuItem");
+                            Sleep(50);
                             commands++;
                             w.SendKeystrokes(reader.Name + "{TAB}");
                             w.SendKeystrokes(reader.Value);
@@ -738,8 +611,19 @@ namespace UnitTests
             w.SendKeystrokes("fo{TAB}ar{ENTER}");
             Sleep(500);//just so I can see it
 
-            Trace.WriteLine("Add Test FontBuilder");
-            w.SendKeystrokes("{ENTER}");
+            Trace.WriteLine("Test FontBuilder");
+
+            // for some unknown reason this fails to popup sometimes only during full test.
+            for (int i = 0; i < 5; i++)
+            {
+                w.SendKeystrokes("{ENTER}");
+                var completion = TryFindNodeTextViewCompletionPopup();
+                if (completion != null)
+                {
+                    break;
+                }
+                Trace.WriteLine("Retring to open the FontBuilder completionset...");
+            }
             popup = ClickXmlBuilder();
             popup.DismissPopUp("{ENTER}");
 
@@ -815,7 +699,7 @@ namespace UnitTests
 
         private void NavigateErrorWithMouse()
         {
-            AutomationWrapper grid = this.window.FindDescendant("DataGridView");
+            AutomationWrapper grid = this.ErrorList;
             AutomationWrapper row = grid.FirstChild;
             row = row.NextSibling;
             Point pt = row.Bounds.Center();
@@ -1063,8 +947,8 @@ namespace UnitTests
             ScrollAutomationWrapper scrollbar = table.FindScroller();
             scrollbar.Simulator = this.sim;
 
-            Trace.WriteLine("Font");
-            AutomationWrapper font = table.FindChild("Font"); // this is the group heading
+            AutomationWrapper fonts = table.FindChild("Fonts"); // this is the group heading
+            AutomationWrapper font = fonts.FindChild("Font");
             scrollbar.ScrollIntoView(font, table);
 
             Rectangle r = font.Bounds;
@@ -1094,13 +978,14 @@ namespace UnitTests
                   "64, 0, 128", "Lime", "128, 0, 64", "0, 64, 64"};
 
 
+            AutomationWrapper colors = table.FindChild("Colors"); // this is the group heading
             for (int i = 0, n = names.Length; i < n; i++)
             {
                 string name = names[i];
 
                 Trace.WriteLine("Click " + name);
 
-                AutomationWrapper child = table.FindChild(name);
+                AutomationWrapper child = colors.FindChild(name);
                 scrollbar.ScrollIntoView(child, table);
 
                 r = child.Bounds;
@@ -1121,11 +1006,11 @@ namespace UnitTests
 
             // verify persisted colors.
             this.testSettings = LoadTestSettings();
-            ThemeColors colors = (ThemeColors)this.testSettings["LightColors"];
+            ThemeColors theme = (ThemeColors)this.testSettings["LightColors"];
 
             Color[] found = new Color[]
             {
-                colors.Element, colors.Attribute, colors.Text, colors.Background, colors.Comment, colors.PI, colors.CDATA
+                theme.Element, theme.Attribute, theme.Text, theme.Background, theme.Comment, theme.PI, theme.CDATA
             };
             TypeConverter tc = TypeDescriptor.GetConverter(typeof(Color));
 
@@ -1354,7 +1239,7 @@ namespace UnitTests
 
             Trace.WriteLine("Add schema via file dialog");
             var button = schemaDialog.FindDescendant("Browse Row 0");
-            button.Invoke(); // bring up file open dialog
+            schemaDialog.InvokeAsyncMenuItem("addSchemasToolStripMenuItem");
             Sleep(1000);
 
             Window fileDialog = schemaDialog.WaitForPopup();
@@ -1460,6 +1345,83 @@ namespace UnitTests
             schemaDialog.SendKeystrokes("%O"); // hot key for OK button.
 
         }
+
+
+        [TestMethod]
+        [Timeout(TestMethodTimeout)]
+        public void TestXsiAttributes()
+        {
+            Trace.WriteLine("TestXsiAttributes==========================================================");
+            string testFile = _testDir + "UnitTests\\test13.xml";
+            var w = LaunchNotepad(testFile);
+
+            AutomationWrapper grid = this.ErrorList;
+            AutomationWrapper description = grid.FirstChild.NextSibling.FirstChild.NextSibling;
+            var text = description.SimpleValue;
+            if (!text.Contains("The 'last_changed' element is invalid"))
+            {
+                throw new Exception("Missing validation error");
+            }
+
+            // correct the value of the xsi:nil attribute
+            w.SendKeystrokes("{END}{RIGHT}{DOWN}{TAB}{ENTER}true{ENTER}");
+            Sleep(500);
+
+            try
+            {
+                description = grid.FirstChild.NextSibling.FirstChild.NextSibling;
+                text = description.SimpleValue;
+                throw new Exception($"Error list should now be empty, but found: {text}");
+            } 
+            catch (Exception ex)
+            {
+                if (!ex.Message.Contains("There is no next sibling"))
+                {
+                    throw new Exception($"Unexpected error: {ex.Message}");
+                }
+            }
+        }
+
+        [TestMethod]
+        [Timeout(TestMethodTimeout)]
+        public void TestSchemaGeneration()
+        {
+            Trace.WriteLine("TestSchemaGeneration==========================================================");
+            var w = LaunchNotepad();
+
+            Sleep(1000);
+            Trace.WriteLine("Open Schema Dialog");
+            Window schemaDialog = w.OpenDialog("schemasToolStripMenuItem", "FormSchemas");
+            schemaDialog.InvokeMenuItem("clearToolStripMenuItem");
+
+            Trace.WriteLine("Add schema via file dialog");
+            var button = schemaDialog.FindDescendant("Browse Row 0");
+            schemaDialog.InvokeAsyncMenuItem("addSchemasToolStripMenuItem");
+            Sleep(1000);
+
+            Window fileDialog = schemaDialog.WaitForPopup();
+            FileDialogWrapper fd = new FileDialogWrapper(fileDialog);
+            string schema = _testDir + "UnitTests\\emp.xsd";
+            fd.DismissPopUp(schema + "{ENTER}");
+
+            schemaDialog.SendKeystrokes("^{HOME}+ "); // select first row
+            Sleep(300); // just so we can watch it happen
+
+            schemaDialog.InvokeAsyncMenuItem("generateXMLInstanceToolStripMenuItem");
+            schemaDialog.SendKeystrokes("{DOWN}{DOWN}{ENTER}");
+            Sleep(300); // just so we can watch it happen
+
+            schemaDialog.SendKeystrokes("%O"); // hot key for OK button.
+
+            this.TreeView.SetFocus();
+            w.SendKeystrokes("{HOME}");
+
+            CheckOuterXml("<Employees xmlns=\"http://Employees\"><Employee id=\"\"><Name><First>string</First><Last>string</Last></Name><Street>string</Street>" +
+                "<City>string</City><Zip>positiveInteger</Zip><Country><Name>U.S.A.</Name></Country><Office>string</Office><Photo>anyURI</Photo></Employee></Employees>");
+
+            Save("out.xml");
+        }
+
         public FindDialog OpenFindDialog()
         {
             this.window.Activate();
@@ -1523,7 +1485,7 @@ namespace UnitTests
             AssertNormalizedEqual(fd.FindString, "/Root/a:Employee"); // test element with namespaces!
 
             Trace.WriteLine("test edit path and find node.");
-            fd.Window.SendKeystrokes("/Root{ENTER}");
+            fd.Window.SendKeystrokes("/Root{BACKSPACE}{ENTER}");
             Sleep(100);
             fd.Window.DismissPopUp("{ESC}");
             Sleep(100);
@@ -1557,7 +1519,8 @@ namespace UnitTests
             var w = LaunchNotepad();
 
             MainWindowWrapper xw = new MainWindowWrapper(w);
-            xw.LoadXmlAddress(_testDir + "Application\\Samples\\rss.xml", "<?xml version=\"1.0\" encoding=\"utf-8\"?>");
+            xw.LoadXmlAddress(_testDir + "Application\\Samples\\rss.xml",
+                "<?xml-stylesheet type='text/xsl' href='rsspretty.xsl' version='1.0'?>");
 
             Trace.WriteLine("Show XSLT");
             xw.ShowXslt();
@@ -1616,6 +1579,7 @@ Prefix 'user' is not defined. ");
             xw.EnterXmlOutputFilename(outputFilename);
 
             xw.InvokeTransformButton();
+            Sleep(2000);
 
             var output = File.ReadAllText(tempOutput);
             Assert.IsTrue(output.Contains("Microsoft XML Notepad - Change History"));
@@ -1637,12 +1601,16 @@ Prefix 'user' is not defined. ");
             xw.LoadXmlAddress(url, null);
 
             var findDialog = OpenFindDialog();
-            findDialog.Window.SendKeystrokes("XML Notepad is a Windows program{ENTER}");
+            findDialog.Window.SendKeystrokes("XML Schema aware Intellisense{ENTER}");
             Sleep(500);
 
-            findDialog.Window.DismissPopUp("{ESC}");
-            w.SendKeystrokes("^c{ESC}");
-            CheckClipboard("XML Notepad is a Windows program");
+            // dismiss the long line dialog
+            var popup = w.TryWaitForMessageBox("Very Long Lines");
+            if (popup != null)
+            {
+                popup.DismissPopUp("{ENTER}");
+            }
+
             Sleep(200);
         }
 
@@ -1759,7 +1727,7 @@ Prefix 'user' is not defined. ");
                 w.WaitForInteractive();
                 var node = this.NodeTextView.GetSelectedChild();
                 var value = node.SimpleValue;
-                if (!string.IsNullOrEmpty(value)) 
+                if (!string.IsNullOrEmpty(value))
                     found.Add(value);
             }
 
@@ -1787,6 +1755,7 @@ Prefix 'user' is not defined. ");
             findDialog.Window.SendKeystrokes("item{TAB}xxxxxxx%a");
             findDialog.Window.DismissPopUp("{ESC}");
 
+            this.TreeView.SetFocus();
             w.SendKeystrokes("{ESC}{HOME}");
             CheckOuterXml(original.Replace("item", "xxxxxxx"));
 
@@ -1801,6 +1770,7 @@ Prefix 'user' is not defined. ");
             findDialog.Window.SendKeystrokes("item{TAB}YY%a");
             findDialog.Window.DismissPopUp("{ESC}");
 
+            this.TreeView.SetFocus();
             w.SendKeystrokes("{ESC}{HOME}");
             CheckOuterXml(original.Replace("item", "YY"));
 
@@ -1868,9 +1838,8 @@ Prefix 'user' is not defined. ");
             popup.DismissPopUp("{ENTER}");
             findDialog.Window.DismissPopUp("{ESC}");
 
-            // hack: weird windows 11 bug causes a focus problem after editing a node
-            // the Escape key fixes it.
-            window.SendKeystrokes("{ESC}");
+            // hack: weird windows 11 bug causes a focus problem
+            this.TreeView.SetFocus();
             CheckOuterXml(@"
     The XXXXX markup in this version is Copyright © 1999 Jon Bosak.
     This work may freely be distributed on condition that it not be
@@ -1913,9 +1882,7 @@ Prefix 'user' is not defined. ");
             popup.DismissPopUp("{ENTER}");
             findDialog.Window.DismissPopUp("{ESC}");
 
-            // hack: weird windows 11 bug causes a focus problem after editing a node
-            // the Escape key fixes it.
-            window.SendKeystrokes("{ESC}");
+            this.TreeView.SetFocus();
             CheckOuterXml(@"XXXXX version by Jon Bosak, 1996-1999.");
 
             Undo();
@@ -1950,7 +1917,9 @@ Prefix 'user' is not defined. ");
             var w = LaunchNotepad(testFile);
 
             Trace.WriteLine("Test toopstrip 'new' button");
-            w.InvokeAsyncMenuItem("toolStripButtonNew");
+            // This button blocks on the modal dialog, so we have to use the menu item instead.
+            // w.InvokeAsyncMenuItem("toolStripButtonNew");
+            w.InvokeAsyncMenuItem("newToolStripMenuItem");
 
             Trace.WriteLine("test recent files menu");
             w.SendKeystrokes("%f");
@@ -1961,7 +1930,10 @@ Prefix 'user' is not defined. ");
 
             Sleep(1000);
             Trace.WriteLine("Test toolstrip button open");
-            w.InvokeAsyncMenuItem("toolStripButtonOpen");
+
+            // This button blocks on the modal dialog, so we have to use the menu item instead.
+            // w.InvokeAsyncMenuItem("toolStripButtonOpen");
+            w.InvokeAsyncMenuItem("openToolStripMenuItem");
             Window openDialog = w.WaitForPopup();
             openDialog.DismissPopUp(testFile + "{ENTER}");
             Sleep(500);
@@ -2290,7 +2262,7 @@ Prefix 'user' is not defined. ");
         {
             Trace.WriteLine("TestAccessibility==========================================================");
             string testFile = _testDir + "UnitTests\\test1.xml";
-            Window w = this.LaunchNotepad(testFile, testTemplate:true);
+            Window w = this.LaunchNotepad(testFile, testTemplate: true);
             Sleep(1000);
             // Get AutomationWrapper to selected node in the tree.
             AutomationWrapper tree = this.TreeView;
@@ -2924,6 +2896,7 @@ Prefix 'user' is not defined. ");
             // now we should be able to open the settings.
             w = this.LaunchNotepad(testFile, false);
             w.InvokeAsyncMenuItem("openSettingsToolStripMenuItem");
+            Sleep(200);
 
             // <DisableDefaultXslt>False</DisableDefaultXslt>
             w.SendKeystrokes("^IDis");
@@ -3122,7 +3095,48 @@ Prefix 'user' is not defined. ");
             this.SaveAndCompare("out.xml", "test8.xml");
         }
 
+        [TestMethod]
+        [Timeout(TestMethodTimeout)]
+        public void TestNoByteOrderMark()
+        {
+            SetNoByteOrderMark(true);
+            Trace.WriteLine("TestNoByteOrderMark==========================================================");
+            string testFile = _testDir + "UnitTests\\test8.xml";
+            var w = this.LaunchNotepad(testFile);
+            Sleep(1000);
+            string outFile = Save("out.xml");
+
+            AssertUtf8Bom(testFile, true);
+            AssertUtf8Bom(outFile, false);
+
+            // test we can load it
+            XmlDocument doc = new XmlDocument();
+            doc.Load(outFile);
+        }
+
         //==================================================================================
+
+        void SetNoByteOrderMark(bool value)
+        {
+            this.testSettings["NoByteOrderMark"] = value;
+            this.testSettings.Save(this.testSettings.FileName);
+        }
+
+        private void AssertUtf8Bom(string filename, bool expected)
+        {
+            var data = File.ReadAllBytes(filename);
+            bool isUtf8 = data.Length > 3 && data[0] == 0xef && data[1] == 0xBB && data[2] == 0xBF;
+            if (isUtf8 && !expected)
+            {
+                throw new ApplicationException("Byte order mark is present in {filename} but should not be");
+            }
+            else if (!isUtf8 && expected)
+            {
+                throw new ApplicationException("Byte order mark is not present in {filename} but should be");
+            }
+        }
+
+
         private void SaveAndCompare(string outname, string compareWith)
         {
             string outFile = Save(outname);

@@ -13,12 +13,16 @@ echo ### Publishing version %VERSION%...
 set WINGET=1
 set GITRELEASE=1
 set UPLOAD=1
+set CLEAN=1
 set PUBLISH=%ROOT%\src\Application\bin\Release\app.publish
+set WIXBIN=%ProgramFiles% (x86)\WiX Toolset v3.14\bin
+set zipfile=publish\XmlNotepadSetup.zip
 
 :parse
 if "%1"=="/nowinget" set WINGET=0
 if "%1"=="/norelease" set GITRELEASE=0
 if "%1"=="/noupload" set UPLOAD=0
+if "%1"=="/noclean" set CLEAN=0
 if "%1"=="" goto :done
 shift
 goto :parse
@@ -30,44 +34,35 @@ if ERRORLEVEL 1 goto :nosed
 if EXIST "%ROOT%\publish" rd /s /q "%ROOT%\publish"
 if EXIST "%PUBLISH%" rd /s /q "%PUBLISH%"
 
-nuget restore src\xmlnotepad.sln
-if ERRORLEVEL 1 goto :eof
+if "%CLEAN%" == "0" goto :build
+git clean -dfx
 
-msbuild /target:rebuild src\UpdateVersions\UpdateVersions.csproj /p:Configuration=Release "/p:Platform=AnyCPU"
-if ERRORLEVEL 1 goto :eof
+:build
+call .\build.cmd
 
-src\UpdateVersions\bin\Release\UpdateVersions.exe
-if ERRORLEVEL 1 goto :eof
-
-msbuild /target:rebuild src\xmlnotepad.sln /p:Configuration=Release "/p:Platform=Any CPU"
-if ERRORLEVEL 1 goto :nobits
 msbuild /target:publish src\xmlnotepad.sln /p:Configuration=Release "/p:Platform=Any CPU"
 if ERRORLEVEL 1 goto :nobits
 if not EXIST %PUBLISH%\XmlNotepad.application goto :nobits
 
 move "%PUBLISH%" "%ROOT%\publish"
 
+if not EXIST "%WIXBIN%\WixUtilExtension.dll" goto :nowix
+
+echo Building XmlNotepadSetup.msi...
+pushd src\XmlNotepadSetup
+msbuild /target:build XmlNotepadSetup.wixproj /p:Configuration=Release /p:OutDir=bin\Release\
+if ERRORLEVEL 1 goto :err_setup
+if not EXIST bin\Release\XmlNotepadSetup.msi goto :nomsi
+popd
+
+echo "Did the src\XmlNotepadSetup\bin\Release\XmlNotepadSetup.msi get build?"
+pause 
+
+:bundle
+echo Building XmlNotepadPackage and Bundle...
 msbuild /target:build src\xmlnotepadsetup.sln /p:Configuration=Release "/p:Platform=Any CPU"
 if ERRORLEVEL 1 goto :noappx
 
-if not EXIST "C:\Program Files (x86)\WiX Toolset v3.11\bin\WixUtilExtension.dll" goto :nowix
-
-pushd src\XmlNotepadSetup
-echo echo Building XmlNotepadSetup.msi... > foo.cmd
-echo candle.exe -d"DevEnvDir=%DevEnvDir%\" -dSolutionDir=%ROOT%\src\ -dSolutionExt=.sln -dSolutionFileName=xmlnotepadsetup.sln -dSolutionName=xmlnotepadsetup -dSolutionPath=%ROOT%\src\xmlnotepadsetup.sln -dConfiguration=Release -dOutDir=bin\Release\ -dPlatform=AnyCPU -dProjectDir=%ROOT%\src\XmlNotepadSetup\ -dProjectExt=.wixproj -dProjectFileName=XmlNotepadSetup.wixproj -dProjectName=XmlNotepadSetup -dProjectPath=%ROOT%\src\XmlNotepadSetup\XmlNotepadSetup.wixproj -dTargetDir=%ROOT%\src\XmlNotepadSetup\bin\Release\ -dTargetExt=.msi -dTargetFileName=XmlNotepadSetup.msi -dTargetName=XmlNotepadSetup -dTargetPath=%ROOT%\src\XmlNotepadSetup\bin\Release\XmlNotepadSetup.msi -dApplication.Configuration=Release -d"Application.FullConfiguration=Release|AnyCPU" -dApplication.Platform=AnyCPU -dApplication.ProjectDir=%ROOT%\src\Application\ -dApplication.ProjectExt=.csproj -dApplication.ProjectFileName=Application.csproj -dApplication.ProjectName=Application -dApplication.ProjectPath=%ROOT%\src\Application\Application.csproj -dApplication.TargetDir=%ROOT%\src\Application\bin\Release\ -dApplication.TargetExt=.exe -dApplication.TargetFileName=XmlNotepad.exe -dApplication.TargetName=XmlNotepad -dApplication.TargetPath=%ROOT%\src\Application\bin\Release\XmlNotepad.exe -out obj\Release\ -ext "C:\Program Files (x86)\WiX Toolset v3.11\bin\WixUtilExtension.dll" -ext "C:\Program Files (x86)\WiX Toolset v3.11\bin\WixUIExtension.dll" Product.wxs	>> foo.cmd
-echo light.exe -sw1105 -out %ROOT%\src\XmlNotepadSetup\bin\Release\XmlNotepadSetup.msi -pdbout %ROOT%\src\XmlNotepadSetup\bin\Release\XmlNotepadSetup.wixpdb -cultures:null -ext "C:\Program Files (x86)\WiX Toolset v3.11\bin\\WixUtilExtension.dll" -ext "C:\Program Files (x86)\WiX Toolset v3.11\bin\WixUIExtension.dll" -contentsfile obj\Release\XmlNotepadSetup.wixproj.BindContentsFileListnull.txt -outputsfile obj\Release\XmlNotepadSetup.wixproj.BindOutputsFileListnull.txt -builtoutputsfile obj\Release\XmlNotepadSetup.wixproj.BindBuiltOutputsFileListnull.txt -wixprojectfile %ROOT%\src\XmlNotepadSetup\XmlNotepadSetup.wixproj obj\Release\Product.wixobj >> foo.cmd
-
-call foo.cmd
-if ERRORLEVEL 1 goto :err_setup
-
-del foo.cmd
-
-call %ROOT%\src\XmlNotepadSetup\sign.cmd
-if ERRORLEVEL 1 goto :err_sign
-
-popd
-
-if not EXIST src\XmlNotepadSetup\bin\Release\XmlNotepadSetup.msi goto :nomsi
 if EXIST src\XmlNotepadSetup\bin\Release\XmlNotepadSetup.zip del src\XmlNotepadSetup\bin\Release\XmlNotepadSetup.zip
 if "%LOVETTSOFTWARE_STORAGE_CONNECTION_STRING%" == "" goto :nokey
 
@@ -83,18 +78,18 @@ copy /y src\Updates\Updates.xslt src\XmlNotepadSetup\bin\Release\
 if ERRORLEVEL 1 goto :eof
 copy /y src\Updates\Updates.xsd src\XmlNotepadSetup\bin\Release\
 if ERRORLEVEL 1 goto :eof
-if exist publish\XmlNotepadSetup.zip del publish\XmlNotepadSetup.zip
-pwsh -command "Compress-Archive -Path src\XmlNotepadSetup\bin\Release\* -DestinationPath publish\XmlNotepadSetup.zip"
+if exist %zipfile% del %zipfile%
+pwsh -command "Compress-Archive -Path src\XmlNotepadSetup\bin\Release\* -DestinationPath %zipfile%"
 
 set bundle=%ROOT%\src\XmlNotepadPackage\AppPackages\%VERSION%\XmlNotepadPackage_%VERSION%_Test\XmlNotepadPackage_%VERSION%_AnyCPU.msixbundle
 if not EXIST %bundle% goto :noappx
-set zipfile=publish\XmlNotepadSetup.zip
 
 if "%GITRELEASE%" == "0" goto :upload
 
 echo Creating new release for version %VERSION%
 %ROOT%\tools\xsl -e -s src\Updates\LatestVersion.xslt src\Updates\Updates.xml > notes.txt
 gh release create %VERSION% "%bundle%" "%zipfile%" --notes-file notes.txt --title "Xml Notepad %VERSION%"
+if ERRORLEVEL 1 goto :nogh
 del notes.txt
 
 :upload
@@ -110,6 +105,7 @@ echo ============ Done publishing ClickOnce installer to XmlNotepad ============
 
 where wingetcreate > nul 2>&1
 if ERRORLEVEL 1 winget install wingetcreate
+winget upgrade wingetcreate
 
 if "%WINGET%"=="0" goto :skipwinget
 if not exist %WINGET_SRC% goto :nowinget
@@ -145,6 +141,7 @@ echo Preparing winget package
 set TARGET=%WINGET_SRC%\manifests\m\Microsoft\XMLNotepad\%VERSION%\
 if not exist %TARGET% mkdir %TARGET%
 copy /y tools\Microsoft.XMLNotepad*.yaml  %TARGET%
+winget update wingetcreate
 wingetcreate update Microsoft.XMLNotepad --version %VERSION% -o %WINGET_SRC% -u https://github.com/microsoft/XmlNotepad/releases/download/%VERSION%/XmlNotepadPackage_%VERSION%_AnyCPU.msixbundle
 if ERRORLEVEL 1 goto :eof
 
@@ -179,7 +176,7 @@ echo '%PUBLISH%' folder not found, so the build failed, please manually run rele
 exit /b 1
 
 :nomsi
-echo 'XmlNotepadSetup\bin\Release\XmlNotepadSetup.msi' not found, please use src\XmlNotepadSetup.sln to build the msi.
+echo 'src\XmlNotepadSetup\bin\Release\XmlNotepadSetup.msi' not found, did the build fail?
 exit /b 1
 
 :nokey
@@ -203,18 +200,14 @@ echo Please clone git@github.com:lovettchris/winget-pkgs.git into %WINGET_SRC%
 exit /b 1
 
 :nowix
-echo Please install the wixtoolset to C:\Program Files (x86)\WiX Toolset v3.11\bin, and add this to your PATH
+echo Please install the wixtoolset to %WIXBIN%, and add this to your PATH
 exit /b 1
 
 :err_setup
 popd
-echo src\XmlNotepadSetup\foo.cmd failed, try building inside XmlNotepadSetup.sln and ensure candle.exe command line matches this script
+echo src\XmlNotepadSetup build failed, try building inside XmlNotepadSetup.sln and ensure candle.exe command line matches this script
 exit /b 1
 
-:err_sign
-popd
-echo Signing failed, try building inside XmlNotepadSetup.sln
-exit /b 1
 
 :skipwinget
 echo Skipping winget setup
@@ -226,4 +219,8 @@ exit /b 1
 
 :gitError
 echo ### error : %1
+exit /b 1
+
+:nogh
+echo ### gh release failed, do you need to run gh auth login?
 exit /b 1

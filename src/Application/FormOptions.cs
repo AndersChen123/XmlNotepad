@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Collections;
 using System.ComponentModel;
@@ -38,7 +38,7 @@ namespace XmlNotepad
             }
 
             // now let the user resize it.
-            this.AutoSize = false;
+            this.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         }
 
         protected override void OnClosing(CancelEventArgs e)
@@ -50,7 +50,30 @@ namespace XmlNotepad
                 hp.HelpNamespace = hs.DefaultHelp;
             }
 
+
+            SaveSettings();
             base.OnClosing(e);
+        }
+
+        private void SaveSettings()
+        {
+            Point location = this.Location;
+            Control ctrl = this.Site as Control;
+            if (ctrl != null)
+            {
+                // Make saved location relative to Main window.
+                Rectangle ownerBounds = ctrl.TopLevelControl.Bounds;
+                location.X -= ownerBounds.Left;
+                location.Y -= ownerBounds.Top;
+                this._settings["OptionsWindowLocation"] = location;
+            }
+            this._settings["OptionsWindowSize"] = this.ClientSize;
+        }
+
+        protected override void OnResizeBegin(EventArgs e)
+        {
+            this.AutoSize = false;
+            base.OnResizeBegin(e);
         }
 
         protected override bool ProcessDialogKey(Keys keyData)
@@ -79,6 +102,7 @@ namespace XmlNotepad
                 {
                     this._settings = value.GetService(typeof(Settings)) as Settings;
                     this._userSettings = new UserSettings(this._settings) { Font = this.SelectedFont };
+                    this._userSettings.EnableDtdHandler += HandleEnableDtd;
 
                     List<string> hiddenProperties = new List<string>();
                     if (this._settings.GetString("AnalyticsClientId") == "disabled")
@@ -94,8 +118,61 @@ namespace XmlNotepad
 
                     MemberFilter filter = new MemberFilter(this._userSettings, hiddenProperties.ToArray());
                     this.propertyGrid1.SelectedObject = filter;
+
+                    Size s = this.ClientSize;
+                    object size = this._settings["OptionsWindowSize"];
+                    if (size != null && (Size)size != Size.Empty)
+                    {
+                        Size cs = (Size)size;
+                        // but not smaller than the computed size.
+                        s = new Size(Math.Max(s.Width, cs.Width), Math.Max(s.Height, cs.Height));
+                        this.AutoSize = false;
+                        this.ClientSize = s;
+                    }
+                    object location = this._settings["OptionsWindowLocation"];
+                    if (location != null && (Point)location != Point.Empty)
+                    {
+                        Control ctrl = this.Site as Control;
+                        if (ctrl != null)
+                        {
+                            Rectangle ownerBounds = ctrl.TopLevelControl.Bounds;
+                            Point relativePos = (Point)location;
+                            Point newPos = ownerBounds.Location;
+                            newPos.Offset(relativePos.X, relativePos.Y);
+                            if (this.IsOnScreen(newPos))
+                            {
+                                this.Location = newPos;
+                                this.StartPosition = FormStartPosition.Manual;
+                            }
+                        }
+                    }
                 }
             }
+        }
+
+
+        private void HandleEnableDtd(object sender, CancelEventArgs e)
+        {
+            if (!_settings.GetBoolean("DisableIgnoreDtdPrompt"))
+            {
+                _settings["DisableIgnoreDtdPrompt"] = true;
+                var rc = MessageBox.Show("Enabling DTD processing has risks, would you like to see the documentation on this?",
+                    "DTD Processing Risk", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
+                if (rc == DialogResult.Cancel)
+                {
+                    e.Cancel = true;
+                }
+                else if (rc == DialogResult.Yes)
+                {
+                    WebBrowser.OpenUrl(this.Handle, "https://microsoft.github.io/XmlNotepad/#help/validation/#dtd-entity-leakage");
+                    e.Cancel = true;
+                }
+            }
+        }
+
+        private void OnButtonCancelClick(object sender, EventArgs e)
+        {
+            this.Close();
         }
 
         private void OnButtonOKClick(object sender, System.EventArgs e)
@@ -140,6 +217,7 @@ namespace XmlNotepad
             private ThemeColors _lightColors;
             private ThemeColors _darkColors;
             private Color _elementColor;
+            private Color _schemaAwareTextColor;
             private Color _commentColor;
             private Color _attributeColor;
             private Color _piColor;
@@ -151,15 +229,18 @@ namespace XmlNotepad
             private string _updateLocation;
             private SettingsLocation _settingsLocation;
             private bool _enableUpdate;
+            private TimeSpan _updateFrequency;
             private bool _noByteOrderMark;
             private bool _disableDefaultXslt;
             private bool _autoFormatOnSave;
             private int _indentLevel;
             private IndentChar _indentChar;
             private string _newLineChars;
+            private bool _preserveWhitespace;
             private string _language;
             private int _maximumLineLength;
             private int _maximumValueLength;
+            private long _maximumLineIndex;
             private bool _autoFormatLongLines;
             private bool _ignoreDTD;
             private bool _enableXsltScripts;
@@ -172,8 +253,15 @@ namespace XmlNotepad
             private bool _xmlDiffIgnorePrefixes;
             private bool _xmlDiffIgnoreXmlDecl;
             private bool _xmlDiffIgnoreDtd;
+            private bool _xmlDiffHideIdentical;
             private bool _allowAnalytics;
             private string _textEditor;
+            private bool _schemaAwareText;
+            private string _schemaAwareNames;
+            private bool _promptOnReload;
+            private bool _attributesOnNewLine;
+
+            public event EventHandler<CancelEventArgs> EnableDtdHandler;
 
             public UserSettings(Settings s)
             {
@@ -185,17 +273,23 @@ namespace XmlNotepad
                 LoadColors();
                 _updateLocation = this._settings.GetString("UpdateLocation");
                 _enableUpdate = this._settings.GetBoolean("UpdateEnabled");
+                _updateFrequency = this._settings.GetTimeSpan("UpdateFrequency", TimeSpan.FromDays(1));
                 _disableDefaultXslt = this._settings.GetBoolean("DisableDefaultXslt");
                 _autoFormatOnSave = this._settings.GetBoolean("AutoFormatOnSave");
                 _treeIndent = this._settings.GetInteger("TreeIndent");
                 _noByteOrderMark = this._settings.GetBoolean("NoByteOrderMark");
                 _indentLevel = this._settings.GetInteger("IndentLevel");
                 _indentChar = (IndentChar)this._settings["IndentChar"];
+                _attributesOnNewLine = this._settings.GetBoolean("AttributesOnNewLine");
                 _newLineChars = this._settings.GetString("NewLineChars");
+                _preserveWhitespace = this._settings.GetBoolean("PreserveWhitespace");
                 _language = this._settings.GetString("Language");
-                _settingsLocation = this._settings.GetLocation();                
+                _settingsLocation = this._settings.GetLocation();
+                _schemaAwareText = this._settings.GetBoolean("SchemaAwareText");
+                _schemaAwareNames = this._settings.GetString("SchemaAwareNames");
                 _maximumLineLength = this._settings.GetInteger("MaximumLineLength");
                 _autoFormatLongLines = this._settings.GetBoolean("AutoFormatLongLines");
+                _maximumLineIndex = this._settings.GetLong("MaximumLineIndex");
                 _ignoreDTD = this._settings.GetBoolean("IgnoreDTD");
                 _enableXsltScripts = this._settings.GetBoolean("EnableXsltScripts");
                 _webBrowser = (this._settings.GetString("BrowserVersion") == "WebBrowser") ? WebBrowserVersion.WinformsWebBrowser : WebBrowserVersion.WebView2;
@@ -212,12 +306,14 @@ namespace XmlNotepad
                 this._xmlDiffIgnoreDtd = this._settings.GetBoolean("XmlDiffIgnoreDtd");
                 this._allowAnalytics = this._settings.GetBoolean("AllowAnalytics");
                 this._textEditor = this._settings.GetString("TextEditor");
+                this._promptOnReload = this._settings.GetBoolean("PromptOnReload");
             }
 
             private void LoadColors()
             {
                 ThemeColors colors = this._theme == ColorTheme.Light ? _lightColors : _darkColors;
                 _elementColor = colors.Element;
+                _schemaAwareTextColor = colors.SchemaAwareTextColor;
                 _commentColor = colors.Comment;
                 _attributeColor = colors.Attribute;
                 _piColor = colors.PI;
@@ -232,6 +328,7 @@ namespace XmlNotepad
             {
                 ThemeColors colors = this._theme == ColorTheme.Light ? this._lightColors : this._darkColors;
                 colors.Element = this._elementColor;
+                colors.SchemaAwareTextColor = this._schemaAwareTextColor;
                 colors.Comment = this._commentColor;
                 colors.CDATA = this._cdataColor;
                 colors.Attribute = this._attributeColor;
@@ -277,6 +374,7 @@ namespace XmlNotepad
 
                 this._settings["UpdateEnabled"] = this._enableUpdate;
                 this._settings["UpdateLocation"] = this._updateLocation;
+                this._settings["UpdateFrequency"] = this._updateFrequency;
 
                 this._settings["DisableDefaultXslt"] = _disableDefaultXslt;
                 this._settings["AutoFormatOnSave"] = _autoFormatOnSave;
@@ -284,13 +382,18 @@ namespace XmlNotepad
                 this._settings["IndentLevel"] = _indentLevel;
                 this._settings["IndentChar"] = _indentChar;
                 this._settings["NewLineChars"] = _newLineChars;
+                this._settings["PreserveWhitespace"] = _preserveWhitespace;
                 this._settings["NoByteOrderMark"] = _noByteOrderMark;
+                this._settings["AttributesOnNewLine"] = _attributesOnNewLine;
                 this._settings.SetLocation(_settingsLocation);
 
                 this._settings["Language"] = ("" + this._language).Trim();
+                this._settings["SchemaAwareText"] = this._schemaAwareText;
+                this._settings["SchemaAwareNames"] = this._schemaAwareNames.Trim();
                 this._settings["MaximumLineLength"] = this._maximumLineLength;
                 this._settings["MaximumValueLength"] = this._maximumValueLength;
                 this._settings["AutoFormatLongLines"] = this._autoFormatLongLines;
+                this._settings["MaximumLineIndex"] = this._maximumLineIndex;
                 this._settings["IgnoreDTD"] = this._ignoreDTD;
 
                 this._settings["EnableXsltScripts"] = this._enableXsltScripts;
@@ -304,9 +407,11 @@ namespace XmlNotepad
                 this._settings["XmlDiffIgnorePrefixes"] = this._xmlDiffIgnorePrefixes;
                 this._settings["XmlDiffIgnoreXmlDecl"] = this._xmlDiffIgnoreXmlDecl;
                 this._settings["XmlDiffIgnoreDtd"] = this._xmlDiffIgnoreDtd;
+                this._settings["XmlDiffHideIdentical"] = this._xmlDiffHideIdentical;
 
                 this._settings["AllowAnalytics"] = this._allowAnalytics;
                 this._settings["TextEditor"] = this._textEditor;
+                this._settings["PromptOnReload"] = this._promptOnReload;
 
                 this._settings.OnChanged("Colors");
 
@@ -322,17 +427,21 @@ namespace XmlNotepad
                 this.LoadColors();
                 _updateLocation = Settings.DefaultUpdateLocation;
                 _enableUpdate = true;
+                _updateFrequency = TimeSpan.FromDays(1);
                 _autoFormatOnSave = true;
                 _disableDefaultXslt = false;
                 _noByteOrderMark = false;
                 _indentLevel = 2;
+                _attributesOnNewLine = false;
                 _indentChar = IndentChar.Space;
                 _newLineChars = Settings.EscapeNewLines("\r\n");
                 _language = "";
                 this._maximumLineLength = 10000;
                 this._maximumValueLength = short.MaxValue;
+                this._maximumLineIndex = 1000000;
                 _ignoreDTD = false;
                 this._allowAnalytics = false;
+                this._promptOnReload = true;
             }
 
             [SRCategory("ThemeCategory")]
@@ -367,6 +476,21 @@ namespace XmlNotepad
                 set
                 {
                     this._elementColor = value;
+                }
+            }
+
+            [SRCategory("ColorCategory")]
+            [LocDisplayName("SchemaAwareTextColor")]
+            [SRDescription("SchemaAwareTextColorDescription")]
+            public Color SchemaAwareTextColor
+            {
+                get
+                {
+                    return this._schemaAwareTextColor;
+                }
+                set
+                {
+                    this._schemaAwareTextColor = value;
                 }
             }
 
@@ -517,6 +641,36 @@ namespace XmlNotepad
                 }
             }
 
+            [SRCategory("SchemaCategory")]
+            [LocDisplayName("SchemaAwareTextName")]
+            [SRDescription("SchemaAwareTextDescription")]
+            public bool SchemaAwareText
+            {
+                get
+                {
+                    return this._schemaAwareText;
+                }
+                set
+                {
+                    this._schemaAwareText = value;
+                }
+            }
+
+            [SRCategory("SchemaCategory")]
+            [LocDisplayName("SchemaAwareNamesName")]
+            [SRDescription("SchemaAwareNamesDescription")]
+            public string SchemaAwareNames
+            {
+                get
+                {
+                    return this._schemaAwareNames;
+                }
+                set
+                {
+                    this._schemaAwareNames = value;
+                }
+            }
+
             [SRCategory("AnalyticsCategory")]
             [LocDisplayName("AllowAnalytics")]
             [SRDescription("AllowAnalyticsDescription")]
@@ -544,6 +698,36 @@ namespace XmlNotepad
                 set
                 {
                     this._enableUpdate = value;
+                }
+            }
+
+            [SRCategory("UpdateCategory")]
+            [LocDisplayName("UpdateFrequency")]
+            [SRDescription("UpdateFrequencyDescription")]
+            public string UpdateFrequency
+            {
+                get
+                {
+                    return this._updateFrequency.ToString();
+                }
+                set
+                {
+                    try
+                    {
+                        var newFrequency = TimeSpan.Parse(value);
+                        if (newFrequency < TimeSpan.FromMinutes(30))
+                        {
+                            throw new Exception(StringResources.UpdateFrequencyMinError);
+                        }
+                        else
+                        {
+                            this._updateFrequency = newFrequency;
+                        }
+                    }
+                    catch (FormatException)
+                    {
+                        throw new Exception(StringResources.UpdateFrequencyFormatError);
+                    }
                 }
             }
 
@@ -654,6 +838,21 @@ namespace XmlNotepad
             }
 
             [SRCategory("FormatCategory")]
+            [LocDisplayName("PreserveWhitespace")]
+            [SRDescription("PreserveWhitespaceDescription")]
+            public bool PreserveWhitespace
+            {
+                get
+                {
+                    return this._preserveWhitespace;
+                }
+                set
+                {
+                    this._preserveWhitespace = value;
+                }
+            }
+
+            [SRCategory("FormatCategory")]
             [LocDisplayName("NoByteOrderMark")]
             [SRDescription("NoByteOrderMarkDescription")]
             public bool NoByteOrderMark
@@ -665,6 +864,21 @@ namespace XmlNotepad
                 set
                 {
                     this._noByteOrderMark = value;
+                }
+            }
+
+            [SRCategory("FormatCategory")]
+            [LocDisplayName("AttributesOnNewLineProperty")]
+            [SRDescription("AttributesOnNewLineDescription")]
+            public bool AttributesOnNewLine
+            {
+                get
+                {
+                    return this._attributesOnNewLine;
+                }
+                set
+                {
+                    this._attributesOnNewLine = value;
                 }
             }
 
@@ -724,10 +938,33 @@ namespace XmlNotepad
                 }
                 set
                 {
+                    if (!value && this.EnableDtdHandler != null)
+                    {
+                        var args = new CancelEventArgs();
+                        this.EnableDtdHandler(this, args);
+                        if (args.Cancel)
+                        {
+                            return;
+                        }
+                    }
                     this._ignoreDTD = value;
                 }
             }
 
+            [SRCategory("Validation")]
+            [LocDisplayName("MaximumLineIndexProperty")]
+            [SRDescription("MaximumLineIndexDescription")]
+            public long MaximumLineIndex
+            {
+                get
+                {
+                    return this._maximumLineIndex;
+                }
+                set
+                {
+                    this._maximumLineIndex = value;
+                }
+            }
 
             [SRCategory("XsltCategory")]
             [LocDisplayName("EnableXsltScriptsPropertyName")]
@@ -845,6 +1082,17 @@ namespace XmlNotepad
                 set { this._xmlDiffIgnoreDtd = value; }
             }
 
+            [SRCategory("XmlDiff")]
+            [LocDisplayName("XmlDiffHideIdenticalProperty")]
+            [SRDescription("XmlDiffHideIdenticalDescription")]
+            public bool XmlDiffHideIdentical
+            {
+                get { return this._xmlDiffHideIdentical; }
+                set { this._xmlDiffHideIdentical = value; }
+            }
+
+
+
             [SRCategory("EditingCategory")]
             [LocDisplayName("TextEditorProperty")]
             [SRDescription("TextEditorDescription")]
@@ -860,6 +1108,22 @@ namespace XmlNotepad
                     {
                         this._textEditor = value;
                     }
+                }
+            }
+
+
+            [SRCategory("EditingCategory")]
+            [LocDisplayName("PromptOnReload")]
+            [SRDescription("PromptOnReloadDescription")]
+            public bool PromptOnReload
+            {
+                get
+                {
+                    return this._promptOnReload;
+                }
+                set
+                {
+                    this._promptOnReload = value;
                 }
             }
 

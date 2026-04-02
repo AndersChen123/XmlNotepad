@@ -1,9 +1,11 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Xml;
+using System.Xml.Linq;
 using System.Xml.Schema;
 
 namespace XmlNotepad
@@ -58,12 +60,12 @@ namespace XmlNotepad
 
         public XmlSchemaAttribute[] GetExpectedAttributes()
         {
-            return _expectedAttributes;
+            return this._expectedAttributes;
         }
 
         public XmlSchemaParticle[] GetExpectedParticles()
         {
-            return _expectedParticles;
+            return this._expectedParticles;
         }
 
         public void ValidateContext(XmlCache xcache)
@@ -84,6 +86,7 @@ namespace XmlNotepad
             this._info = new XmlSchemaInfo();
             this._nsResolver = new MyXmlNamespaceResolver(doc.NameTable);
             XmlSchemaSet set = new XmlSchemaSet();
+            set.XmlResolver = resolver;
             // Make sure the SchemaCache is up to date with document.
             SchemaCache sc = xcache.SchemaCache;
             foreach (XmlSchema s in doc.Schemas.Schemas())
@@ -118,11 +121,36 @@ namespace XmlNotepad
                 this._validator.Initialize();
 
                 this._nsResolver.Context = doc;
-                ValidateContent(doc);
+                if (doc.DocumentElement == null)
+                {
+                    GetExpectedRootElements(sc);
+                }
+                else
+                {
+                    ValidateContent(doc);
+                }
                 this._nsResolver.Context = doc;
 
                 this._validator.EndValidation();
             }
+        }
+
+        private void GetExpectedRootElements(SchemaCache cache)
+        {
+            List<XmlSchemaParticle> expected = new List<XmlSchemaParticle>();
+            try
+            {
+                foreach (XmlSchemaElement root in cache.GetPossibleTopLevelElements())
+                {
+                    expected.Add(root);
+                }
+            } 
+            catch (Exception)
+            {
+                // ignore compile errors
+                // todo: add them as task list errors?
+            }
+            this._expectedParticles = expected.ToArray();
         }
 
         public void Validate(XmlCache xcache)
@@ -142,24 +170,17 @@ namespace XmlNotepad
         bool LoadSchemas(XmlDocument doc, XmlSchemaSet set, SchemaResolver resolver)
         {
             XmlElement root = doc.DocumentElement;
-            if (root == null) return false;
-            // Give Xsi schemas highest priority.
-            bool result = LoadXsiSchemas(doc, set, resolver);
-
-            SchemaCache sc = this._cache.SchemaCache;
-            foreach (XmlAttribute a in root.Attributes)
+            if (root != null)
             {
-                if (a.NamespaceURI == "http://www.w3.org/2000/xmlns/")
+                // Give Xsi schemas highest priority.
+                bool result = LoadXsiSchemas(doc, set, resolver);
+                SchemaCache sc = this._cache.SchemaCache;
+                foreach (string nsuri in this._cache.AllNamespaces)
                 {
-                    string nsuri = a.Value;
-                    result |= LoadSchemasForNamespace(set, resolver, sc, nsuri, a);
+                    result |= LoadSchemasForNamespace(set, resolver, sc, nsuri, root);
                 }
+                result |= LoadSchemasForNamespace(set, resolver, sc, doc.DocumentElement.NamespaceURI, root);
             }
-            if (string.IsNullOrEmpty(root.NamespaceURI))
-            {
-                result |= LoadSchemasForNamespace(set, resolver, sc, "", root);
-            }
-
             // Make sure all the required includes or imports are there. 
             // This is making up for a possible bug in XmlSchemaSet where it
             // refuses to load an XmlSchema containing a DTD.  Our XmlSchemaResolver
@@ -170,7 +191,7 @@ namespace XmlNotepad
                 CopyImports(s, set, visited);
             }
 
-            return result;
+            return true;
         }
 
         private void CopyImports(XmlSchema s, XmlSchemaSet set, HashSet<XmlSchema> visited)
@@ -186,7 +207,7 @@ namespace XmlNotepad
                 else if (o is XmlSchemaImport j)
                 {
                     XmlSchema js = j.Schema;
-                    if (js == null)
+                    if (js == null && !string.IsNullOrEmpty(j.Namespace))
                     {
                         js = this._cache.SchemaCache.FindSchemasByNamespace(j.Namespace)?.Schema;
                     }
@@ -260,6 +281,10 @@ namespace XmlNotepad
         {
             try
             {
+                if (set.Contains(nsuri))
+                {
+                    return false;
+                }
                 Uri baseUri = this._baseUri;
                 if (!string.IsNullOrEmpty(ctx.BaseURI))
                 {
@@ -366,7 +391,7 @@ namespace XmlNotepad
         {
             XmlSchemaInfo i = this._info;
             XmlSchemaInfo copy = new XmlSchemaInfo();
-            copy.ContentType = i.ContentType;
+            copy.ContentType = i.ContentType;            
             copy.IsDefault = i.IsDefault;
             copy.IsNil = i.IsNil;
             copy.MemberType = i.MemberType;
@@ -463,7 +488,7 @@ namespace XmlNotepad
             for (int i = 0, n = text.Length; i < n; i++)
             {
                 char ch = text[i];
-                if ((ch < 20 && ch != 0x9 && ch != 0xa && ch != 0xd) || ch > 0xfffe)
+                if ((ch < 0x20 && ch != 0x9 && ch != 0xa && ch != 0xd) || ch > 0xfffe)
                 {
                     ReportError(Severity.Error, string.Format(Strings.InvalidCharacter, ((int)ch).ToString(), i), ctx);
                 }
@@ -559,101 +584,6 @@ namespace XmlNotepad
             {
                 this._validator.ValidationEventHandler -= OnValidationEvent;
             }
-        }
-
-        internal class MyXmlNamespaceResolver : System.Xml.IXmlNamespaceResolver
-        {
-            private System.Xml.XmlNameTable _nameTable;
-            private XmlNode _context;
-            private string _emptyAtom;
-
-            public MyXmlNamespaceResolver(System.Xml.XmlNameTable nameTable)
-            {
-                this._nameTable = nameTable;
-                this._emptyAtom = nameTable.Add(string.Empty);
-            }
-
-            public XmlNode Context
-            {
-                get
-                {
-                    return this._context;
-                }
-                set
-                {
-                    this._context = value;
-                }
-            }
-
-            public System.Xml.XmlNameTable NameTable
-            {
-                get
-                {
-                    return this._nameTable;
-                }
-            }
-
-            private string Atomized(string s)
-            {
-                if (s == null) return null;
-                if (s.Length == 0) return this._emptyAtom;
-                return this._nameTable.Add(s);
-            }
-
-            public string LookupPrefix(string namespaceName, bool atomizedName)
-            {
-                string result = null;
-                if (_context != null)
-                {
-                    result = _context.GetPrefixOfNamespace(namespaceName);
-                }
-                return Atomized(result);
-            }
-
-            public string LookupPrefix(string namespaceName)
-            {
-                string result = null;
-                if (_context != null)
-                {
-                    result = _context.GetPrefixOfNamespace(namespaceName);
-                }
-                return Atomized(result);
-            }
-
-            public string LookupNamespace(string prefix, bool atomizedName)
-            {
-                return LookupNamespace(prefix);
-            }
-
-            public string LookupNamespace(string prefix)
-            {
-                string result = null;
-                if (_context != null)
-                {
-                    result = _context.GetNamespaceOfPrefix(prefix);
-                }
-                return Atomized(result);
-            }
-
-            public IDictionary<string, string> GetNamespacesInScope(System.Xml.XmlNamespaceScope scope)
-            {
-                Dictionary<string, string> dict = new Dictionary<string, string>();
-                if (this._context != null)
-                {
-                    foreach (XmlAttribute a in this._context.SelectNodes("namespace::*"))
-                    {
-                        string nspace = a.InnerText;
-                        string prefix = a.Prefix;
-                        if (prefix == "xmlns")
-                        {
-                            prefix = "";
-                        }
-                        dict[prefix] = nspace;
-                    }
-                }
-                return dict;
-            }
-
         }
 
     }

@@ -9,6 +9,95 @@
     <history>https://github.com/microsoft/XmlNotepad/blob/master/src/Updates/Updates.xml</history>
     <frequency>1.00:00:00</frequency>
   </application>
+	<version number="2.9.0.21">
+		<feature>Fix issue security advisory on DTD processing. Make default Ignore DTD option True, which is more secure.</feature>
+	</version>
+	<version number="2.9.0.17">
+		<feature>Fix issue #463: Don't add a missing XML declaration on save.</feature>
+		<feature>Fix issue #460: Remove formatting for XML elements that are not allowed to contain whitespace (XSD Schema content model is Empty, Mixed, or TextOnly).</feature>
+	</version>
+	<version number="2.9.0.16">
+		<bug>Fix issue #430: Autoformat on Save with empty XML-Elements.</bug>
+		<feature>Formatting Options has new setting to format Xml attributes each on a separate line.</feature>
+	</version>
+	<version number="2.9.0.15">
+		<bug>Fix issue #425: "No byte order mark on save" option throws stream closed exception add unit test.</bug>
+		<bug>Apply dark mode to window titlebar.</bug>
+	</version>
+  <version number="2.9.0.14">
+    <bug>Fix issue #418: check setttings-file for "read-only".</bug>
+    <bug>Fix issue #398: XmlNotepad detects xml-errors at empty nillable xsd:date Elements, but xml is correct</bug>
+  </version>
+	<version number="2.9.0.13">
+		<feature>Issue 409: Not able to validate XML against multiple not referenced Schemas</feature>
+    <feature>Issue 329: Incomplete schema validation of large XML files ( > ~20 MB).</feature>
+    <bug>Report invalid characters undex 0x20.</bug>
+    <bug>Fix unit tests so they run on Windows 11, including a work around for https://github.com/dotnet/winforms/issues/10244.</bug>
+	</version>
+	<version number="2.9.0.12">
+		<feature>Issue 324: Generate xml from schema, see https://youtu.be/5I_q1oXz02I.</feature>
+		<feature>Issue 385:: "XML Reload" removes loaded XSLT. You can now get auto-reload when xml file changes on disk
+		and you can turn off the prompt in options dialog and it will reapply the XSLT automatically.</feature>
+		<feature>update to WebView2 version 1.0.2739.15</feature>
+		<bug>Also preserve the selection in the XML tree view across file reloads.</bug>
+	</version>
+  <version number="2.9.0.11">
+    <feature>Issue 413: Suggestion: please limit "Check for Update" #413: Makes Update Frequency an Option in the options dialog.</feature>
+    <bug>Merged lots of doc fixes from Jvr2022.</bug>
+  </version>
+  <version number="2.9.0.9">
+    <feature>Issue 382: Add progress bar on long XSLT transform operations.</feature>
+    <feature>Issue 379: Add Preserve Whitespace option so your XSLT transforms can output the whitespace correctly.</feature>
+    <bug>Bug 383: Reload of a "not loaded" file</bug>
+    <bug>Bug 381: Multiple instances resets the settings</bug>
+    <bug>Bug 380: Opening bad XML file keeps watching the file</bug>
+  </version>
+  <version number="2.9.0.8">
+    <feature>
+      Add ability to load .json files.
+    </feature>
+	  <feature>Add #367 preserve Options Dialog box relative location and size</feature>
+    <bug>Bug 370: Error Message after SEARCHING and drag &amp; drop of a new file</bug>
+    <bug>Bug 371: Unhandled exception loading XML file with the http://www.crossref.org/schema/deposit/crossref4.4.2.xsd schemas.</bug>
+  </version>
+  <version number="2.9.0.7">
+    <feature>
+      Move to .NET Framework version 4.8.
+    </feature>
+    <feature>
+      Add some bootstrapping help creating an empty document by providing intellisense from
+      loaded schemas to show possible root elements and when an element is selected from the
+      list set the namespace correctly on the new element so intellisense continues from there.
+    </feature>
+    <feature>
+      Add new File/Open XmlDiff Styles menu item so you can edit the CSS styles for the XmlDiff output window.
+      Delete the file to reset back to the original styles.
+      The files lives in %LOCALAPPDATA%\Microsoft\Xml Notepad\XmlDiffStyles.css.
+    </feature>
+    <feature>
+      Add a Copy XPath command that gives you the XPath location of the selected element.
+    </feature>
+    <bug>Fix Schema dialog row copy so it gives you a valid xsi:schemaLocation value.</bug>
+    <bug>Fix new bug in WebView2 initialization.</bug>
+  </version>
+  <version number="2.9.0.6">
+    <feature>
+      Add new Xml Diff option to "hide identical" elements in the output so that the HTML diff
+      scales much better on very large documents, thanks to Mark Roberts for the XmlDiff feature
+      behind this.
+    </feature>
+    <feature>Issue 186 "Options" dialog now remembers its position.</feature>
+    <bug>Bug 331: "ReplaceAll" with unallowed characters gets stuck.</bug>
+  </version>
+  <version number="2.9.0.5">
+    <feature>
+      Add SchemaAwareText for XML elements that contain a child id, name, title or xsd:key.  New options allow you
+      to configure the color (SchemaAwareTextColor) and whether to show it, and what default element names should
+      be promoted where the defaults are "id, name, key, title". Thanks to Tomasz Wilczyński!.</feature>
+    <feature>New fluient icon design by https://github.com/Lixkote.</feature>
+    <bug>Bug 285: Resx files were updated to fix build functionality in german VS (thanks to Oleg Missal!).</bug>
+    <bug>Bug 82: Paste very slow.</bug>
+  </version>
   <version number="2.9.0.4">
     <feature>Add F12 goto definition support on XSD IDREF attributes to their matching ID attributes</feature>
     <bug>Bug 284: View stastistics was broken if your Program Files folder was read/write.</bug>
@@ -70,7 +159,7 @@
   <version number="2.8.0.57">
     <bug>Fix bug 182: Error when changing from roaming to local (1st time use).</bug>
   </version>
-  <version number="2.8.0.56">	  
+  <version number="2.8.0.56">
     <feature>Add support for a XmlNotepad.template.settings file that can provide default settings in an enterprise wide deployment of XmlNotepad.</feature>
   </version>
   <version number="2.8.0.55">

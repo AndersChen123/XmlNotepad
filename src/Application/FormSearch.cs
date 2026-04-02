@@ -50,7 +50,7 @@ namespace XmlNotepad
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            this.AutoSizeMode = AutoSizeMode.GrowOnly;
+            // this.AutoSizeMode = AutoSizeMode.GrowOnly;
         }
 
         protected override void OnDpiChanged(DpiChangedEventArgs e)
@@ -167,8 +167,11 @@ namespace XmlNotepad
                 while (rc)
                 {
                     Application.DoEvents();
-                    _target.ReplaceCurrent(replacement);
-                    rc = FindNext(true);
+                    rc = _target.ReplaceCurrent(replacement);
+                    if (rc)
+                    {
+                        rc = FindNext(true);
+                    }
                 }
             }
             catch (Exception ex)
@@ -401,7 +404,6 @@ namespace XmlNotepad
             _recentFindStrings.SetValues(this._settings["RecentFindStrings"] as string[]);
             _recentReplaceStrings.SetValues(this._settings["RecentReplaceStrings"] as string[]);
 
-            Size s = this.ClientSize;
             object o = this._settings["FindMode"];
             if (o != null)
             {
@@ -409,13 +411,19 @@ namespace XmlNotepad
                 SetFindModeControls(!this._findOnly);
             }
 
+            Size s = this.ClientSize;
             object size = this._settings["SearchSize"];
             if (size != null && (Size)size != Size.Empty)
             {
-                Size cs = (Size)size;
-                s = new Size(cs.Width, cs.Height);
+                // Bugbug: we cannot preserve find dialog size with only one setting, we need 
+                // a setting for CTRL+F and another for CTRL+H and 2 more depending on whether
+                // XPath setting is checked since all those have different dialog sizes
+
+                // Size cs = (Size)size;
+                // s = new Size(Math.Max(s.Width, cs.Width), Math.Max(s.Height, cs.Height));
+                // this.AutoSize = false;
+                // this.ClientSize = s;
             }
-            this.ClientSize = s;
 
             object location = this._settings["SearchWindowLocation"];
             if (location != null && (Point)location != Point.Empty)
@@ -423,50 +431,19 @@ namespace XmlNotepad
                 Control ctrl = this.Site as Control;
                 if (ctrl != null)
                 {
-                    Rectangle ownerBounds = ctrl.TopLevelControl.Bounds;
-                    if (IsSameScreen((Point)location, ownerBounds))
+                    Rectangle ownerBounds = ctrl.TopLevelControl.Bounds; 
+                    Point relativePos = (Point)location;
+                    Point newPos = ownerBounds.Location;
+                    newPos.Offset(relativePos.X, relativePos.Y);
+                    if (this.IsOnScreen(newPos))
                     {
-                        this.Location = (Point)location;
+                        this.Location = newPos;
+                        this.StartPosition = FormStartPosition.Manual;
                     }
-                    else
-                    {
-                        this.Location = CenterPosition(ownerBounds);
-                    }
-                    this.StartPosition = FormStartPosition.Manual;
                 }
             }
 
             this.ResumeLayout();
-        }
-
-        Point CenterPosition(Rectangle bounds)
-        {
-            Size s = this.ClientSize;
-            Point center = new Point(bounds.Left + (bounds.Width / 2) - (s.Width / 2),
-                bounds.Top + (bounds.Height / 2) - (s.Height / 2));
-
-            if (center.X < 0) center.X = 0;
-            if (center.Y < 0) center.Y = 0;
-
-            return center;
-        }
-
-        bool IsSameScreen(Point location, Rectangle ownerBounds)
-        {
-            Point center = new Point(ownerBounds.Left + ownerBounds.Width / 2,
-                ownerBounds.Top + ownerBounds.Height / 2);
-
-            foreach (Screen s in Screen.AllScreens)
-            {
-                Rectangle sb = s.WorkingArea;
-                if (sb.Contains(location))
-                {
-                    return sb.Contains(center);
-                }
-            }
-
-            // Who knows where that location is (perhaps secondary monitor was removed!)
-            return false;
         }
 
         protected override void OnClosing(CancelEventArgs e)
@@ -476,8 +453,17 @@ namespace XmlNotepad
         }
 
         public void SaveSettings()
-        { 
-            this._settings["SearchWindowLocation"] = this.Location;
+        {
+            Point location = this.Location;
+            Control ctrl = this.Site as Control;
+            if (ctrl != null)
+            {
+                // Make saved location relative to Main window.
+                Rectangle ownerBounds = ctrl.TopLevelControl.Bounds;
+                location.X -= ownerBounds.Left;
+                location.Y -= ownerBounds.Top;
+                this._settings["SearchWindowLocation"] = location;
+            }
             // save replace mode size, since we will shink the size next time findOnly is set.
             this._settings["SearchSize"] = this.ClientSize;
             this._settings["FindMode"] = this._findOnly;
@@ -598,12 +584,15 @@ namespace XmlNotepad
             {
                 this.Expression = _target.Location;
                 XmlNamespaceManager nsmgr = _target.Namespaces;
-                foreach (string prefix in nsmgr)
+                if (nsmgr != null)
                 {
-                    if (!string.IsNullOrEmpty(prefix) && prefix != "xmlns")
+                    foreach (string prefix in nsmgr)
                     {
-                        string uri = nsmgr.LookupNamespace(prefix);
-                        this.dataTableNamespaces.Rows.Add(new object[] { prefix, uri });
+                        if (!string.IsNullOrEmpty(prefix) && prefix != "xmlns")
+                        {
+                            string uri = nsmgr.LookupNamespace(prefix);
+                            this.dataTableNamespaces.Rows.Add(new object[] { prefix, uri });
+                        }
                     }
                 }
             }

@@ -12,11 +12,18 @@ namespace XmlNotepad
     public class TextEditorEventArgs : EventArgs
     {
         private string _text;
+        private string _nsContext;
         private bool _cancelled;
 
         public string Text
         {
             get { return _text; }
+        }
+
+        public string NamespaceContext
+        {
+            get { return _nsContext; }
+            set { _nsContext = value; }
         }
 
         public bool Cancelled
@@ -292,21 +299,29 @@ namespace XmlNotepad
         {
             if (ending) return false; // don't let it be re-entrant!
             ending = true;
-
+            bool success = true;
             _cset.EndEdit(cancel);
             try
             {
                 if (this._currentEditor.Visible)
                 {
+                    bool hideEdit = true;
                     if (this.CommitEdit != null)
                     {
                         string value = (this._editor != null) ? this._editor.XmlValue : this._currentEditor.Text;
                         TextEditorEventArgs args = new TextEditorEventArgs(value, cancel);
+                        args.NamespaceContext = _cset.GetSelectedItemNamespace();
                         CommitEdit(this, args);
                         if (args.Cancelled && !cancel)
-                            return false;
+                        {
+                            success = false;
+                            hideEdit = false;
+                        }                    
                     }
-                    HideEdit();
+                    if (hideEdit)
+                    {
+                        HideEdit();
+                    }
                 }
             }
             catch (Exception e)
@@ -317,7 +332,7 @@ namespace XmlNotepad
             {
                 ending = false;
             }
-            return true;
+            return success;
         }
 
         const ushort WM_CHAR = 0x0102;
@@ -798,7 +813,7 @@ namespace XmlNotepad
             {
                 for (int i = 0, n = list.Count; i < n; i++)
                 {
-                    string s = list.GetValue(i);
+                    string s = list.GetName(i);
                     int j = this._listBox.Items.Add(s);
                     if (s == this._editor.Text)
                     {
@@ -828,10 +843,22 @@ namespace XmlNotepad
             this.HideToolTip();
             if (!cancel && this.Visible && this._listBox.SelectedItem != null)
             {
-                this._editor.Text = (string)this._listBox.SelectedItem;
+                var i = this._listBox.SelectedIndex;
+                var name = _list.GetName(i);
+                this._editor.Text = name;
                 this._editor.Focus();
             }
             this.Visible = false;
+        }
+
+        public string GetSelectedItemNamespace()
+        {
+            var i = this._listBox.SelectedIndex;
+            if (i >= 0)
+            {
+                return _list.GetNamespace(i);
+            }
+            return null;
         }
 
         void PositionPopup()

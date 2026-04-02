@@ -1,9 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Windows.Forms;
 using System.Xml;
 using System.Xml.Linq;
@@ -31,9 +34,10 @@ namespace XmlNotepad
         private XmlTreeNode _dragged;
         private XmlTreeViewDropFeedback _feedback;
         private IntelliTip _tip;
-        private DelayedActions _delayedActions;
         private NodeTextView _nodeTextView;
         private TreeView _myTreeView;
+        private HashSet<string> _schemaAwareNames;
+        private bool _showSchemaAwareText;
 
         public XmlTreeView()
         {
@@ -135,8 +139,7 @@ namespace XmlNotepad
             this.IntellisenseProvider.RegisterBuilder("XmlNotepad.UriBuilder", typeof(UriBuilder));
             this.IntellisenseProvider.RegisterEditor("XmlNotepad.DateTimeEditor", typeof(DateTimeEditor));
 
-            this._model = (XmlCache)this.Site.GetService(typeof(XmlCache));
-            this._delayedActions = (DelayedActions)this.Site.GetService(typeof(DelayedActions));
+            this._model = (XmlCache)this.Site.GetService(typeof(XmlCache));            
             if (this._model != null)
             {
                 this._model.FileChanged += new EventHandler(OnFileChanged);
@@ -148,9 +151,15 @@ namespace XmlNotepad
                 this._settings.Changed += new SettingsEventHandler(OnSettingsChanged);
                 int indent = this.Settings.GetInteger("TreeIndent");
                 this._myTreeView.TreeIndent = indent;
+                this._schemaAwareNames = new HashSet<string>(this._settings.GetString("SchemaAwareNames").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries), StringComparer.InvariantCultureIgnoreCase);
+                this._showSchemaAwareText = this._settings.GetBoolean("SchemaAwareText");
             }
             if (this._model != null) BindTree();
         }
+
+        public HashSet<string> SchemaAwareNames => this._schemaAwareNames;
+
+        public bool ShowSchemaAwareText => this._showSchemaAwareText;
 
         [Browsable(false)]
         public XmlCache Model
@@ -359,11 +368,42 @@ namespace XmlNotepad
                         {
                             if (inode.RequiresName)
                             {
-                                inode.XmlNode = inode.CreateNode(context, e.Label);
+                                inode.XmlNode = inode.CreateNode(context, e.Label, e.Namespace);
                                 // Cause selection event to be triggered so that menu state
                                 // is recalculated.
+                                XmlElement scope = inode.XmlNode as XmlElement;
+                                if (scope == null)
+                                {
+                                    scope = context as XmlElement;
+                                }
+                                XmlDocument doc = context is XmlDocument ? (XmlDocument)context : context.OwnerDocument;
                                 this._myTreeView.SelectedNode = null;
                                 this.OnNodeInserted(inode.NewNode);
+                                var prefix = inode.XmlNode.Prefix;
+                                if (!string.IsNullOrEmpty(prefix))
+                                {
+                                    if (prefix != "xmlns" && !XmlHelpers.IsPrefixInScope(context, prefix))
+                                    {
+                                        XmlAttribute attr = doc.CreateAttribute("xmlns", inode.XmlNode.Prefix, XmlStandardUris.XmlnsUri);
+                                        attr.Value = inode.XmlNode.NamespaceURI;
+                                        this._model.AllNamespaces.Add(inode.XmlNode.NamespaceURI);
+                                        scope.Attributes.Append(attr);
+                                        xn.Children.Add(new XmlTreeNode(this, (XmlTreeNode)e.Node, attr));
+                                        xn.Expand();
+                                    }
+                                }   
+                                else if (!string.IsNullOrEmpty(e.Namespace))
+                                {
+                                    if (!XmlHelpers.IsDefaultNamespaceInScope(context, e.Namespace))
+                                    {
+                                        XmlAttribute attr = doc.CreateAttribute("", "xmlns", XmlStandardUris.XmlnsUri);
+                                        attr.Value = e.Namespace;
+                                        this._model.AllNamespaces.Add(e.Namespace);
+                                        scope.Attributes.Append(attr);
+                                        xn.Children.Add(new XmlTreeNode(this, (XmlTreeNode)e.Node, attr));
+                                        xn.Expand();
+                                    }
+                                }
                             }
                         }
                     }
@@ -451,6 +491,7 @@ namespace XmlNotepad
 
         void myTreeView_AfterBatchUpdate(object sender, EventArgs e)
         {
+            this.SyncScrollbars();
             if (this.SelectedNode != null)
             {
                 ScrollIntoView(this.SelectedNode);
@@ -569,6 +610,7 @@ namespace XmlNotepad
         private void OnModelChanged(object sender, ModelChangedEventArgs e)
         {
             if (_disposed) return;
+            if (this._updating > 0) return;
             ModelChangeType t = e.ModelChangeType;
             switch (t)
             {
@@ -576,7 +618,9 @@ namespace XmlNotepad
                 case ModelChangeType.NodeChanged:
                     CheckChange(e);
                     break;
+                case ModelChangeType.Cleared:
                 case ModelChangeType.Reloaded:
+                    CancelEdit();
                     BindTree();
                     break;
                 case ModelChangeType.NamespaceChanged:
@@ -644,6 +688,17 @@ namespace XmlNotepad
             this._nodeTextView.ScrollPosition = new Point(0, 0);
             this._myTreeView.ScrollPosition = new Point(0, 0);
 
+            // try and preserve the selection and expanded state to the selection.
+            XmlTreeNode selection = (XmlTreeNode)this.SelectedNode;
+            XmlNamespaceManager nsmgr = null;
+            string xpath = null;
+            if (selection != null && selection.Node != null)
+            {
+                var xnode = selection.Node;
+                nsmgr = XmlHelpers.GetNamespaceScope(xnode);
+                xpath = XmlHelpers.GetXPathLocation(xnode, nsmgr);
+            }
+
             this.SuspendLayout();
             this._myTreeView.BeginUpdate();
             try
@@ -661,10 +716,24 @@ namespace XmlNotepad
             {
                 this._myTreeView.EndUpdate();
             }
+
+            bool foundSelection = false;
+            if (this._model.Document != null && !string.IsNullOrEmpty(xpath))
+            {
+                var matchingNode = this._model.Document.SelectSingleNode(xpath, nsmgr);
+                if (matchingNode != null)
+                {
+                    var treeNode = this.FindNode(matchingNode);
+                    TreeView.EnsureVisible(treeNode);
+                    this.SelectedNode = treeNode;
+                    foundSelection = true;
+                }
+            }
+
             this.ResumeLayout();
             this._myTreeView.Invalidate();
             this._myTreeView.Focus();
-            if (this._myTreeView.Nodes.Count > 0)
+            if (!foundSelection && this._myTreeView.Nodes.Count > 0)
             {
                 this.SelectedNode = (XmlTreeNode)this._myTreeView.Nodes[0];
             }
@@ -688,13 +757,12 @@ namespace XmlNotepad
 
         internal void SyncScrollbars()
         {
-
             if (this.hScrollBar1.Visible)
             {
                 int x = this.resizer.Left;
                 int w = this._myTreeView.VirtualWidth + 10;
                 this._myTreeView.Height = this.Height - this.hScrollBar1.Height;
-                int hScrollMax = 10 + ((w - x) / HScrollIncrement);
+                int hScrollMax = Math.Max(0, 10 + ((w - x) / HScrollIncrement));
                 this.hScrollBar1.Minimum = 0;
                 this.hScrollBar1.Maximum = hScrollMax;
                 this.hScrollBar1.Value = Math.Min(this.hScrollBar1.Value, hScrollMax);
@@ -773,6 +841,11 @@ namespace XmlNotepad
             this._nodeTextView.OnLoaded();
         }
 
+        private void OnClipboardChanged()
+        {
+            if (ClipboardChanged != null) ClipboardChanged(this, EventArgs.Empty);
+        }
+
         public void Cut()
         {
             this.Commit();
@@ -780,7 +853,7 @@ namespace XmlNotepad
             if (selection != null)
             {
                 this.UndoManager.Push(new CutCommand(this, selection));
-                if (ClipboardChanged != null) ClipboardChanged(this, EventArgs.Empty);
+                OnClipboardChanged();
             }
         }
 
@@ -791,8 +864,31 @@ namespace XmlNotepad
             if (selection != null)
             {
                 TreeData.SetData(selection);
-                if (ClipboardChanged != null) ClipboardChanged(this, EventArgs.Empty);
+                OnClipboardChanged();
             }
+        }
+
+        public void CopyXPath()
+        {
+            var xpath = this.GetSelectedXPath();
+            if (!string.IsNullOrEmpty(xpath))
+            {
+                Clipboard.SetText(xpath);
+                OnClipboardChanged();
+            }
+        }
+
+        public string GetSelectedXPath()
+        {
+            XmlTreeNode selection = (XmlTreeNode)this._myTreeView.SelectedNode;
+            if (selection != null && selection.Node != null)
+            {
+                var xnode = selection.Node;
+                var nsmgr = XmlHelpers.GetNamespaceScope(xnode);
+                string path = XmlHelpers.GetXPathLocation(xnode, nsmgr);
+                return path;
+            }
+            return string.Empty;
         }
 
         public void Paste(InsertPosition position)
@@ -1225,6 +1321,16 @@ namespace XmlNotepad
                 this._myTreeView.TreeIndent = indent;
                 update = true;
             }
+            if (name == "SchemaAwareNames")
+            {
+                this._schemaAwareNames = new HashSet<string>(this._settings.GetString("SchemaAwareNames").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries), StringComparer.InvariantCultureIgnoreCase);
+                update = true;
+            }
+            if (name == "SchemaAwareText")
+            {
+                this._showSchemaAwareText = this._settings.GetBoolean("SchemaAwareText");
+                update = true;
+            }
 
             if (update)
             {
@@ -1645,11 +1751,13 @@ namespace XmlNotepad
         public void BeginUpdate()
         {
             this._updating++;
+            this.Model.BeginUpdate();
         }
 
         public void EndUpdate()
         {
             this._updating--;
+            this.Model.EndUpdate();
         }
 
         public void BeginSave()
@@ -1702,6 +1810,9 @@ namespace XmlNotepad
         private XmlSchemaType _type;
         private XmlNodeType _nodeType;
         private string _editLabel;
+        private string _schemaAwareText;
+        private Color _schemaAwareColor;
+        private TreeNodeCollection _lazyChildren;
 
         public XmlTreeNode(XmlTreeView view)
         {
@@ -1756,8 +1867,6 @@ namespace XmlNotepad
             }
         }
 
-
-
         public override void Remove()
         {
             base.Remove();
@@ -1808,16 +1917,42 @@ namespace XmlNotepad
             {
                 this._settings = _view.Settings;
                 this._img = CalculateNodeImage(this.Node);
-                this._foreColor = this.GetForeColor(this._img);
+                this.InitForeColor(this._img);
+                this._schemaAwareText = null;
             }
         }
 
+        internal string GetSchemaAwareText()
+        {
+            string id = GetIdAttributeValue();
+            if (!string.IsNullOrEmpty(id))
+            {
+                return id;
+            }
+            TreeNodeCollection nodes = GetChildren(this);
+            if (nodes != null)
+            {
+                foreach (var node in nodes)
+                {
+                    if (!string.IsNullOrEmpty(node.Label) && this._view.SchemaAwareNames.Contains(node.Label))
+                    {
+                        return node.Text;
+                    }
+                }
+            }
+            // must not return null, as the difference between null and string.Empty is
+            // used to determine if this has already been computed for efficiency reasons.
+            return string.Empty; 
+        }
 
         public override void Invalidate()
         {
             base.Invalidate();
             Init();
-            this.XmlTreeView.SyncScrollbars();
+            if (!this.XmlTreeView.TreeView.InBatchUpdate)
+            {
+                this.XmlTreeView.SyncScrollbars();
+            }
         }
 
         public Settings Settings { get { return this._settings; } }
@@ -1858,6 +1993,25 @@ namespace XmlNotepad
                 this.Invalidate();
             }
         }
+
+        public override string Label2 {
+            get {
+                // very important this is lazily constructed only for visible nodes because it is expensive!
+                if (this._schemaAwareText == null && this._view?.ShowSchemaAwareText == true)
+                {
+                    this._schemaAwareText = this.GetSchemaAwareText();
+                    if (!string.IsNullOrEmpty(this._schemaAwareText))
+                    {
+                        this._schemaAwareText = ": " + this._schemaAwareText;
+                    }
+                }
+                return this._schemaAwareText;
+            }
+            set => this._schemaAwareText = value;
+        }
+
+        public override Color Label2Color => this._schemaAwareColor;
+
         public override bool IsLabelEditable
         {
             get
@@ -1866,6 +2020,7 @@ namespace XmlNotepad
                     ((this._node is XmlAttribute || this._node is XmlElement)));
             }
         }
+
         public override string Text
         {
             get
@@ -1910,7 +2065,11 @@ namespace XmlNotepad
         {
             get
             {
-                return new XmlTreeNodeCollection(this);
+                if (this._lazyChildren  == null)
+                {
+                    this._lazyChildren = new XmlTreeNodeCollection(this);
+                }
+                return _lazyChildren;
             }
         }
 
@@ -1934,28 +2093,34 @@ namespace XmlNotepad
             }
         }
 
-        public Color GetForeColor(NodeImage img)
+        public void InitForeColor(NodeImage img)
         {
             var theme = (ColorTheme)this._settings["Theme"];
             var colorSetName = theme == ColorTheme.Light ? "LightColors" : "DarkColors";
             ThemeColors colors = (ThemeColors)this._settings[colorSetName];
+            Color color = colors.Text;
             switch (img)
             {
                 case NodeImage.Element:
                 case NodeImage.OpenElement:
                 case NodeImage.Leaf:
-                    return colors.Element;
+                    color = colors.Element;
+                    break;
                 case NodeImage.Attribute:
-                    return colors.Attribute;
+                    color = colors.Attribute;
+                    break;
                 case NodeImage.PI:
-                    return colors.PI;
+                    color = colors.PI;
+                    break;
                 case NodeImage.CData:
-                    return colors.CDATA;
+                    color = colors.CDATA;
+                    break;
                 case NodeImage.Comment:
-                    return colors.Comment;
-                default:
-                    return colors.Text;
+                    color = colors.Comment;
+                    break;
             }
+            this._foreColor = color;
+            this._schemaAwareColor = colors.SchemaAwareTextColor;
         }
 
         NodeImage CalculateNodeImage(XmlNode n)
@@ -2032,7 +2197,7 @@ namespace XmlNotepad
                 {
                     XmlAttribute a = acol[i];
                     string value = a.Value;
-                    if (a.NamespaceURI == XmlHelpers.XmlnsUri)
+                    if (a.NamespaceURI == XmlStandardUris.XmlnsUri)
                     {
                         if (!hasXmlNs)
                         {
@@ -2162,6 +2327,10 @@ namespace XmlNotepad
 
         public virtual XmlSchemaAnnotated GetSchemaObject()
         {
+            if (this.Node == null)
+            {
+                return null;
+            }
             XmlSchemaInfo si = this.XmlTreeView.Model.GetTypeInfo(this.Node);
             if (si != null)
             {
@@ -2175,6 +2344,30 @@ namespace XmlNotepad
                 if (st != null) return st;
 
                 return si.SchemaType;
+            }
+            return null;
+        }
+
+        public virtual string GetIdAttributeValue()
+        {
+            XmlSchemaAttribute found = null;
+            XmlSchemaObject o = GetSchemaObject();
+            if (o is XmlSchemaElement e && e.ElementSchemaType is XmlSchemaComplexType ct)
+            {
+                foreach (var attr in ct.Attributes)
+                {
+                    if (attr is XmlSchemaAttribute a && a.SchemaTypeName.Name == "ID")
+                    {
+                        found = a;
+                        break;
+                    }
+                }
+            }
+
+            if (found != null)
+            {
+                // then this is an ID attribute so return the attribute value.
+                return this.GetAttributeValue(found.Name);
             }
             return null;
         }

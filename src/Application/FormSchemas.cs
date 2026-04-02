@@ -7,6 +7,8 @@ using System.Xml.Schema;
 using System.Xml;
 using System.Diagnostics;
 using SR = XmlNotepad.StringResources;
+using System.Data.SqlClient;
+using System.Linq;
 
 namespace XmlNotepad
 {
@@ -27,6 +29,9 @@ namespace XmlNotepad
         public FormSchemas()
         {
             InitializeComponent();
+#if DEBUG
+            AddHiddenMenuItems();
+#endif
             DataGridViewBrowseCell template = new DataGridViewBrowseCell();
             template.UndoManager = this._undoManager;
             template.OpenFileDialog = this.openFileDialog1;
@@ -35,6 +40,20 @@ namespace XmlNotepad
             this._undoManager.StateChanged += new EventHandler(undoManager_StateChanged);
         }
 
+        private void AddHiddenMenuItems()
+        {
+            var hidden = new HiddenMenuItems();
+            hidden.Add(clearToolStripMenuItem);
+            hidden.Add(cutToolStripMenuItem);
+            hidden.Add(copyToolStripMenuItem);
+            hidden.Add(pasteToolStripMenuItem);
+            hidden.Add(deleteToolStripMenuItem);
+            hidden.Add(undoToolStripMenuItem);
+            hidden.Add(redoToolStripMenuItem);
+            hidden.Add(addSchemasToolStripMenuItem);
+            hidden.Add(generateXMLInstanceToolStripMenuItem);
+            this.Controls.Add(hidden);
+        }
         void undoManager_StateChanged(object sender, EventArgs e)
         {
             this.UpdateMenuState();
@@ -102,10 +121,10 @@ namespace XmlNotepad
                 string filename = e.FormattedValue as string;
                 if (string.IsNullOrEmpty(filename))
                     return;
-                if (SchemaDialogCommand.ValidateSchema(row, filename) == null)
-                {
-                    e.Cancel = true;
-                }
+                //if (SchemaDialogCommand.ValidateSchema(row, filename) == null)
+                //{
+                //    e.Cancel = true;
+                //}
             }
         }
 
@@ -138,7 +157,10 @@ namespace XmlNotepad
         protected override void OnClosing(CancelEventArgs e)
         {
             if (!Cancel())
+            {
                 e.Cancel = true;
+                return;
+            }
 
             HelpProvider hp = this.Site.GetService(typeof(HelpProvider)) as HelpProvider;
             HelpService hs = this.Site.GetService(typeof(HelpService)) as HelpService;
@@ -251,7 +273,18 @@ namespace XmlNotepad
         void Push(Command cmd)
         {
             this._inUndoRedo = true;
-            _undoManager.Push(cmd);
+            try
+            {
+                _undoManager.Push(cmd);
+                if (cmd is SchemaDialogCommand sc && sc.Errors.Length > 0)
+                {
+                    MessageBox.Show(this, sc.Errors, "Schema Contains Errors");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Schema Contains Errors");
+            }
             UpdateMenuState();
             this._inUndoRedo = false;
         }
@@ -333,6 +366,11 @@ namespace XmlNotepad
             cmd.ProcessSelectedRows(delegate (DataGridViewRow row, SchemaItem item)
             {
                 Debug.WriteLine("copyToolStripMenuItem_Click selected row " + row.Index);
+                clip.Append(row.Cells[1].Value as string);
+                if (clip.Length > 0)
+                {
+                    clip.Append(" ");
+                }
                 cmd.AddEscapedUri(clip, row.Cells[2].Value as string);
             });
             if (clip.Length > 0)
@@ -511,19 +549,17 @@ namespace XmlNotepad
                 fd.Multiselect = false;
                 if (fd.ShowDialog(this.DataGridView.FindForm()) == DialogResult.OK)
                 {
-                    if (SchemaDialogCommand.ValidateSchema(row, fd.FileName) != null)
-                    {
-                        row.Cells[2].Value = fd.FileName;
-                    }
+                    row.Cells[2].Value = fd.FileName;
                 }
             }
         }
 
         abstract class SchemaDialogCommand : Command
         {
-
             DataGridView view;
             List<SchemaItem> items;
+            StringBuilder log = new StringBuilder();
+
 
             public SchemaDialogCommand(DataGridView view, List<SchemaItem> items)
             {
@@ -543,6 +579,13 @@ namespace XmlNotepad
                     return false;
                 }
             }
+
+            public void LogError(string message)
+            {
+                log.AppendLine(message);
+            }
+
+            public string Errors => log.ToString();
 
             public void InvalidateRow(DataGridViewRow row)
             {
@@ -735,11 +778,11 @@ namespace XmlNotepad
                 }
             }
 
-            public static XmlSchema ValidateSchema(DataGridViewRow row, string filename)
+            public XmlSchema ValidateSchema(DataGridViewRow row, string filename)
             {
                 try
                 {
-                    XmlSchema schema = SchemaDialogCommand.LoadSchema(filename); // make sure we can load it!            
+                    XmlSchema schema = this.LoadSchema(filename); // make sure we can load it!            
                     return schema;
                 }
                 catch (Exception ex)
@@ -750,12 +793,37 @@ namespace XmlNotepad
                 }
             }
 
-            public static XmlSchema LoadSchema(string filename)
+            public XmlSchema LoadSchema(string filename)
             {
                 if (string.IsNullOrEmpty(filename)) return null;
-                using (var r = new XmlTextReader(filename, new NameTable()))
+                try 
                 {
-                    return XmlSchema.Read(r, null);
+                    using (var r = XmlHelpers.ReadXml(filename))
+                    {
+                        return XmlSchema.Read(r, (sender, args) =>
+                        {
+                            if (args.Exception is XmlSchemaException se)
+                            {
+                                this.LogError($"{args.Message} See line {se.LineNumber} pos {se.LinePosition} of {se.SourceUri}");
+                            }
+                            else
+                            {
+                                this.LogError(args.Message);
+                            }
+                        });
+                    }
+                }
+                catch (XmlException xe)
+                {
+                    // The files that do not meet the basic XML structure,
+                    // such as empty files or files with unclosed tags
+                    this.LogError($"{xe.Message} See line {xe.LineNumber} pos {xe.LinePosition} of {xe.SourceUri}");
+                    return null;
+                }
+                catch (Exception e)
+                {
+                    this.LogError(e.Message);
+                    return null;
                 }
             }
         }
@@ -827,7 +895,7 @@ namespace XmlNotepad
                     schema = item.Schema;
                 }
                 // should succeed because previous code already validated the filename.
-                schema = SchemaDialogCommand.LoadSchema(newSchema);
+                schema = this.LoadSchema(newSchema);
                 newNamespace = schema == null ? "" : schema.TargetNamespace;
                 index = row.Index;
             }
@@ -985,6 +1053,7 @@ namespace XmlNotepad
 
             public override void Do()
             {
+                StringBuilder errors = new StringBuilder();
                 List<DataGridViewRow> list = new List<DataGridViewRow>();
                 foreach (string file in this.files)
                 {
@@ -1021,15 +1090,17 @@ namespace XmlNotepad
                         }
                         list.Add(row);
                     }
-                    catch
+                    catch (Exception ex)
                     {
-#if DEBUG
-                    Trace.WriteLine("Bad file name:" + file);
-#endif
+                        errors.AppendLine(ex.Message);
                     }
                 }
                 SelectRows(list);
                 Verify();
+                if (errors.Length > 0)
+                {
+                    throw new Exception(errors.ToString());
+                }
             }
 
             public override void Undo()
@@ -1045,6 +1116,122 @@ namespace XmlNotepad
             }
         }
 
+        private void generateXMLInstanceToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (this.dataGridView1.SelectedRows.Count == 0)
+            {
+                if (this.dataGridView1.SelectedCells.Count > 0)
+                {
+                    var row = this.dataGridView1.SelectedCells[0].OwningRow;
+                    if (row != null)
+                    {
+                        GenerateXmlFrom(row.Tag as SchemaItem);
+                    }
+                    return;
+                }
+            }
+            else if (this.dataGridView1.SelectedRows.Count == 1)
+            {
+                var row = this.dataGridView1.SelectedRows[0];
+                GenerateXmlFrom(row.Tag as SchemaItem);
+                return;
+            }
+            
+            MessageBox.Show(this, "Please select the top level schema you want to generate an instance from.", "Generate XML error", MessageBoxButtons.OK, MessageBoxIcon.Error);            
+        }
+
+        private void GenerateXmlFrom(SchemaItem item)
+        {
+            if (!this.Commit())
+            {
+                return;
+            }
+            try
+            {
+                List<XmlSchemaElement> names = new List<XmlSchemaElement>();
+                foreach (var e in this._cache.GetPossibleTopLevelElements())
+                {
+                    if (e.QualifiedName.Namespace == item.TargetNamespace)
+                    {
+                        names.Add(e);
+                    }
+                }
+
+                XmlSchemaElement selected = names.FirstOrDefault();
+
+                if (names.Count == 0)
+                {
+                    MessageBox.Show(this, "Could not find any top level Element definitions in your schemas.", "Generate XML error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                else if (names.Count > 1)
+                {
+                    names.Sort(new Comparison<XmlSchemaElement>((a, b) =>
+                    {
+                        return a.Name.CompareTo(b.Name);
+                    }));
+
+                    ContextMenu menu = new ContextMenu();
+                    foreach (var e in names)
+                    {
+                        var menuItem = new MenuItem(e.Name);
+                        menuItem.Tag = e;
+                        menuItem.Click += OnSelectElement;
+                        menu.MenuItems.Add(menuItem);
+                    }
+                    this.ContextMenu = menu;
+                    menu.Collapse += OnMenuClose;
+                    menu.Show(this, new System.Drawing.Point(100, 100));
+                    return;
+                }
+                GenerateXmlInstance(selected);
+                return;
+            } 
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Schema Compile Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnMenuClose(object sender, EventArgs e)
+        {
+            this.ContextMenu = null;
+        }
+
+        private void GenerateXmlInstance(XmlSchemaElement e)
+        {
+            XmlSchema s = XsdInstanceGenerator.GetSchema(e);
+            var temp = new XmlDocument();
+            var xmlCache = (XmlCache)GetService(typeof(XmlCache));
+            IXmlNamespaceResolver resolver = new MyXmlNamespaceResolver(temp.NameTable);
+            XsdInstanceGenerator generator = new XsdInstanceGenerator(s, resolver, xmlCache.SchemaResolver);
+            var doc = generator.Generate(e);
+            if (doc != null)
+            {
+                if (xmlCache.IsEmpty())
+                {
+                    xmlCache.Load(doc);
+                }
+                else
+                {
+                    var path = System.IO.Path.GetTempFileName();
+                    path = System.IO.Path.GetFileNameWithoutExtension(path) + ".xml";
+                    doc.Save(path);
+                    Program.Launch(path);
+                }
+            }
+            else
+            {
+                MessageBox.Show($"Could not generate instance from element {e.QualifiedName}", "Generate XML error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnSelectElement(object sender, EventArgs args)
+        {
+            MenuItem item = (MenuItem)sender;
+            XmlSchemaElement e = (XmlSchemaElement)item.Tag;
+            GenerateXmlInstance(e);
+        }
     }
 
 }

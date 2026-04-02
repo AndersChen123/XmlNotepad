@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Runtime.Remoting.Messaging;
 
 namespace XmlNotepad
 {
@@ -30,6 +31,7 @@ namespace XmlNotepad
         private int _mouseDownEditDelay = 400;
         private Point _scrollPosition;
         private AccessibleTree _acc;
+        internal string documentType = "";
 
         /// <summary> 
         /// Required designer variable.
@@ -225,7 +227,23 @@ namespace XmlNotepad
             {
                 ClearSelection();
                 this._nodes = value;
+                SetDocumentType();
                 PerformLayout();
+            }
+        }
+
+        private void SetDocumentType()
+        {
+            if (this.Nodes != null && this.Nodes.Count > 0)
+            {
+                if (this.Nodes[0].Label.ToLower() == "html")
+                {
+                    documentType = "html";
+                }
+                else
+                {
+                    documentType = "xml";
+                }
             }
         }
 
@@ -659,7 +677,7 @@ namespace XmlNotepad
                 string text = value != null ? value : sel.Label;
                 if (this.BeforeLabelEdit != null)
                 {
-                    NodeLabelEditEventArgs args = new NodeLabelEditEventArgs(sel, text);
+                    NodeLabelEditEventArgs args = new NodeLabelEditEventArgs(sel, text, null);
                     this.BeforeLabelEdit(this, args);
                     if (args.CancelEdit)
                         return false;
@@ -700,7 +718,7 @@ namespace XmlNotepad
             if (this._editor.IsEditing)
             {
                 bool rc = this._editor.Replace(index, length, replacement);
-                this.EndEdit(false);
+                rc = this.EndEdit(false);
                 return rc;
             }
             return false;
@@ -734,7 +752,7 @@ namespace XmlNotepad
                 bool cancel = args.Cancelled;
                 if (this.AfterLabelEdit != null)
                 {
-                    NodeLabelEditEventArgs a = new NodeLabelEditEventArgs(sel, args.Text);
+                    NodeLabelEditEventArgs a = new NodeLabelEditEventArgs(sel, args.Text, args.NamespaceContext);
                     a.CancelEdit = cancel;
                     this.AfterLabelEdit(this, a);
                     cancel = args.Cancelled = a.CancelEdit;
@@ -1334,9 +1352,11 @@ namespace XmlNotepad
 
         public abstract string Label { get; set; }
         public abstract bool IsLabelEditable { get; }
+        public abstract string Label2 { get; set; }
         public abstract TreeNodeCollection Children { get; }
         public abstract int ImageIndex { get; }
         public abstract Color ForeColor { get; }
+        public abstract Color Label2Color { get; }
         public abstract string Text { get; set; }
 
         TreeNodeCollection ParentCollection
@@ -1499,7 +1519,8 @@ namespace XmlNotepad
         public Rectangle LabelBounds
         {
             get { return this._labelBounds; }
-            set { 
+            set
+            {
                 this._labelBounds = value;
                 if (this.Label == "PLAY" && value.X == 33)
                 {
@@ -1595,6 +1616,10 @@ namespace XmlNotepad
                 }
                 Layout(g, f, lineHeight, startX, indent, state.Depth, y, imgSize);
                 g.DrawString(text, f, brush, this._labelBounds.Left, this._labelBounds.Top, StringFormat.GenericTypographic);
+                if (!string.IsNullOrEmpty(this.Label2))
+                {
+                    DrawLabel2(g, f);
+                }
                 brush.Dispose();
             }
         }
@@ -1644,6 +1669,29 @@ namespace XmlNotepad
             }
         }
 
+        internal void DrawLabel2(Graphics g, Font f)
+        {
+            using (var brush = new SolidBrush(this.Label2Color))
+            {
+                int gap = (f.Height / 4) + 1; // gap is proportional to font size.
+                SizeF s = g.MeasureString(this.Label2, f);
+                if (_labelBounds.Right + gap + s.Width > this.TreeView.Width)
+                {
+                    // todo: trim the string and add an elipsis?
+                }
+                g.DrawString(this.Label2, f, brush, _labelBounds.Right + gap, _labelBounds.Top, StringFormat.GenericTypographic);
+            }
+        }
+
+        internal static TreeNodeCollection GetChildren(TreeNode n)
+        {
+            var children = n.Children;
+            if (children.Count > 0)
+            {
+                return children;
+            }
+            return null;
+        }
 
         public static TreeNode GetLastVisibleNode(TreeNodeCollection nodes)
         {
@@ -1686,7 +1734,6 @@ namespace XmlNotepad
             return n;
         }
 
-
         public TreeNode NextVisibleNode
         {
             get
@@ -1712,15 +1759,6 @@ namespace XmlNotepad
             }
         }
 
-        // dead code.
-        //public void BeginEdit(string name) {
-        //    Debug.Assert(this.view != null);
-        //    if (this.view != null) {
-        //        this.view.SelectedNode = this;
-        //        this.view.BeginEdit(name);
-        //    }
-        //}
-
         public bool EndEdit(bool cancel)
         {
             Debug.Assert(this._view != null);
@@ -1733,7 +1771,9 @@ namespace XmlNotepad
 
         public bool IsEditing
         {
-            get { return this._view != null && this._view.IsEditing; }
+            get { 
+                return this._view != null && this._view.IsEditing; 
+            }
         }
 
         public virtual void Expand()
@@ -1817,14 +1857,18 @@ namespace XmlNotepad
         private TreeNode _node;
         private bool _cancel;
         private string _label;
+        private string _nsContext;
 
-        public NodeLabelEditEventArgs(TreeNode node, string label)
+        public NodeLabelEditEventArgs(TreeNode node, string label, string nsContext)
         {
             this._node = node;
             this._label = label;
+            this._nsContext = nsContext;
         }
 
         public string Label { get { return this._label; } }
+
+        public string Namespace { get { return this._nsContext; } }
 
         public TreeNode Node { get { return this._node; } }
 
@@ -2205,18 +2249,10 @@ namespace XmlNotepad
         {
             get
             {
-                //string s = node.Text;
-                //if (s == null) s = "";
-                //return s;
                 return _node.Label;
             }
             set
             {
-                //// hack alert - this is breaking architectural layering!
-                //XmlTreeNode xnode = (XmlTreeNode)node;
-                //XmlTreeView xview = xnode.XmlTreeView;
-                //xview.UndoManager.Push(new EditNodeValue(xview, xnode, value));
-
                 // hack alert - this is breaking architectural layering!
                 XmlTreeNode xnode = (XmlTreeNode)_node;
                 xnode.XmlTreeView.UndoManager.Push(new EditNodeName(xnode, value));

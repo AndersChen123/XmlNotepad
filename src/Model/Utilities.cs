@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Drawing;
 
 namespace XmlNotepad
 {
@@ -39,6 +40,84 @@ namespace XmlNotepad
         public Uri Uri => uri;
         public string LocalPath => localPath;
 
+        private async Task OpenStreamAsync()
+        {
+            this.encoding = null;
+            var uri = this.uri;
+            if (uri.Scheme != "file")
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    using (var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead))
+                    {
+                        var contentType = response.Content.Headers.ContentType;
+                        // todo: contentType.CharSet is also interesting for getting the right Encoding!
+                        this.mimeType = contentType.MediaType;
+                        if (this.mimeType == "text/plain")
+                        {
+                            SetMimeType(this.GetFileExtension());
+                        }
+                        MemoryStream ms = new MemoryStream();
+                        using (var s = await response.Content.ReadAsStreamAsync())
+                        {
+                            s.CopyTo(ms);
+                            ms.Seek(0, SeekOrigin.Begin);
+                        }
+                        this.stream = ms;
+                        if (!string.IsNullOrEmpty(contentType.CharSet))
+                        {
+                            try
+                            {
+                                this.encoding = System.Text.Encoding.GetEncoding(contentType.CharSet);
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
+                string filename = uri.Segments.Length > 1 ? uri.Segments[uri.Segments.Length - 1] : "index";
+                if (uri.OriginalString.EndsWith("/"))
+                {
+                    filename = "index" + this.GetFileExtension();
+                }
+                filename = System.IO.Path.GetFileNameWithoutExtension(filename);
+                filename += this.GetFileExtension();
+                this.localPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), filename);
+            }
+            else
+            {
+                var filename = uri.LocalPath;
+                string ext = System.IO.Path.GetExtension(filename).ToLowerInvariant();
+                SetMimeType(ext);
+                this.stream = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
+                this.localPath = filename;
+            }
+            if (this.encoding == null)
+            {
+                this.encoding = EncodingHelpers.SniffEncoding(this.stream);
+            }
+        }
+
+        private void SetMimeType(string ext)
+        {
+            switch (ext)
+            {
+                case ".csv":
+                    this.mimeType = "text/csv";
+                    break;
+                case ".json":
+                    this.mimeType = "application/json";
+                    break;
+                case ".htm":
+                case ".html":
+                    this.mimeType = "text/html";
+                    break;
+                default:
+                    this.mimeType = "application/xml";
+                    break;
+            }
+        }
+
         public static async Task<FileEntity> Fetch(string url)
         {
             // if it is http then we have to sniff the url to get the content MimeType since
@@ -46,62 +125,7 @@ namespace XmlNotepad
             Uri baseUri = new Uri("file:///" + Directory.GetCurrentDirectory().Replace('\\', '/') + "\\");
             Uri resolved = new Uri(baseUri, url);
             FileEntity e = new FileEntity() { uri = resolved };
-
-            if (resolved.Scheme != "file")
-            {
-                using (HttpClient client = new HttpClient())
-                {
-                    using (var response = await client.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead))
-                    {
-                        var contentType = response.Content.Headers.ContentType;
-                        // todo: contentType.CharSet is also interesting for getting the right Encoding!
-                        e.mimeType = contentType.MediaType;
-                        MemoryStream ms = new MemoryStream();
-                        using (var s = await response.Content.ReadAsStreamAsync())
-                        {
-                            s.CopyTo(ms);
-                            ms.Seek(0, SeekOrigin.Begin);
-                        }
-                        e.stream = ms;
-                        if (!string.IsNullOrEmpty(contentType.CharSet))
-                        {
-                            try
-                            {
-                                e.encoding = System.Text.Encoding.GetEncoding(contentType.CharSet);
-                            }
-                            catch { }
-                        }
-                    }
-                }
-
-                string filename = resolved.Segments.Length > 1 ? resolved.Segments[resolved.Segments.Length - 1] : "index";
-                if (url.EndsWith("/"))
-                {
-                    filename = "index";
-                }
-                filename = System.IO.Path.GetFileNameWithoutExtension(filename);
-                filename += e.GetFileExtension();
-                e.localPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), filename);
-            }
-            else
-            {
-                string ext = System.IO.Path.GetExtension(url).ToLowerInvariant();
-                switch (ext)
-                {
-                    case ".csv":
-                        e.mimeType = "text/csv";
-                        break;
-                    case ".htm":
-                    case ".html":
-                        e.mimeType = "text/html";
-                        break;
-                    default:
-                        e.mimeType = "text/xml";
-                        break;
-                }
-                e.stream = new FileStream(url, FileMode.Open, FileAccess.Read, FileShare.Read);
-                e.localPath = url;
-            }
+            await e.OpenStreamAsync();
             return e;
         }
 
@@ -110,6 +134,18 @@ namespace XmlNotepad
             using (var s = this.stream)
             {
                 this.stream = null;
+            }
+        }
+
+        public async Task<string> ReadText()
+        {
+            if (this.stream == null)
+            {
+                await OpenStreamAsync();
+            }
+            using (var reader = new StreamReader(this.stream, this.encoding))
+            {
+                return reader.ReadToEnd();
             }
         }
 
@@ -124,6 +160,9 @@ namespace XmlNotepad
                     case ".csv":
                         this.mimeType = "text/csv";
                         break;
+                    case ".json":
+                        this.mimeType = "application/json";
+                        break;
                     case ".htm":
                     case ".html":
                         this.mimeType = "text/html";
@@ -135,6 +174,8 @@ namespace XmlNotepad
             {
                 case "text/csv":
                     return ".csv";
+                case "application/json":
+                    return ".json";
                 case "text/html":
                     return ".htm";
                 default:
@@ -145,6 +186,28 @@ namespace XmlNotepad
 
     public class EncodingHelpers
     {
+        public static void InitializeWriterSettings(XmlTextWriter writer, IServiceProvider sp)
+        {
+            if (sp != null)
+            {
+                Settings s = (Settings)sp.GetService(typeof(Settings));
+                if (s != null)
+                {
+                    if (s.GetBoolean("AutoFormatOnSave"))
+                    {
+                        writer.Formatting = Formatting.Indented;
+                        writer.Indentation = s.GetInteger("IndentLevel", 2);
+                        IndentChar indentChar = (IndentChar)s["IndentChar"];
+                        writer.IndentChar = (indentChar == IndentChar.Space) ? ' ' : '\t';
+                    }
+                    else
+                    {
+                        writer.Formatting = Formatting.None;
+                    }
+                }
+            }
+        }
+
         public static void InitializeWriterSettings(XmlWriterSettings settings, IServiceProvider sp)
         {
             settings.CheckCharacters = false;
@@ -164,8 +227,42 @@ namespace XmlNotepad
                     char ch = (indentChar == IndentChar.Space) ? ' ' : '\t';
                     settings.IndentChars = new string(ch, indentLevel);
                     settings.NewLineChars = Settings.UnescapeNewLines(s.GetString("NewLineChars", "\r\n"));
+                    settings.NewLineOnAttributes = s.GetBoolean("AttributesOnNewLine");
                 }
             }
+        }
+
+        public static Encoding SniffEncoding(Stream stm)
+        {
+            byte[] bytes = new byte[16000];
+            int len = stm.Read(bytes, 0, bytes.Length);
+            stm.Seek(0, SeekOrigin.Begin);
+            string xmlDeclPrefix = "<?xml";
+            if (len > xmlDeclPrefix.Length && Encoding.UTF8.GetString(bytes, 0, xmlDeclPrefix.Length) == xmlDeclPrefix)
+            {
+                try
+                {
+                    using (var reader = XmlHelpers.ReadXml(stm))
+                    {
+                        if (reader.Read() && reader.NodeType == XmlNodeType.XmlDeclaration)
+                        {
+                            var value = reader.GetAttribute("encoding");
+                            return Encoding.GetEncoding(value);
+                        }
+                    }
+                }
+                catch
+                {
+                    return Encoding.UTF8;
+                }
+            }
+
+            Encoding result = SniffByteOrderMark(bytes, len);
+            if (result == null)
+            {
+                result = Encoding.UTF8;
+            }
+            return result;
         }
 
         public static void WriteFileWithoutBOM(MemoryStream ms, string filename)

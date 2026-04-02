@@ -34,6 +34,7 @@ namespace XmlNotepad {
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.clearToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.addSchemasToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.generateXMLInstanceToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.editToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.undoToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.redoToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -75,7 +76,6 @@ namespace XmlNotepad {
             this.columnNamespace.DataPropertyName = "TargetNamespace";
             resources.ApplyResources(this.columnNamespace, "columnNamespace");
             this.columnNamespace.Name = "columnNamespace";
-            this.columnNamespace.ReadOnly = true;
             // 
             // columnFileName
             // 
@@ -108,7 +108,8 @@ namespace XmlNotepad {
             // 
             this.fileToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.clearToolStripMenuItem,
-            this.addSchemasToolStripMenuItem});
+            this.addSchemasToolStripMenuItem,
+            this.generateXMLInstanceToolStripMenuItem});
             this.fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             resources.ApplyResources(this.fileToolStripMenuItem, "fileToolStripMenuItem");
             // 
@@ -123,6 +124,12 @@ namespace XmlNotepad {
             resources.ApplyResources(this.addSchemasToolStripMenuItem, "addSchemasToolStripMenuItem");
             this.addSchemasToolStripMenuItem.Name = "addSchemasToolStripMenuItem";
             this.addSchemasToolStripMenuItem.Click += new System.EventHandler(this.addSchemasToolStripMenuItem_Click);
+            // 
+            // generateXMLInstanceToolStripMenuItem
+            // 
+            resources.ApplyResources(this.generateXMLInstanceToolStripMenuItem, "generateXMLInstanceToolStripMenuItem");
+            this.generateXMLInstanceToolStripMenuItem.Name = "generateXMLInstanceToolStripMenuItem";
+            this.generateXMLInstanceToolStripMenuItem.Click += new System.EventHandler(this.generateXMLInstanceToolStripMenuItem_Click);
             // 
             // editToolStripMenuItem
             // 
@@ -235,5 +242,6 @@ namespace XmlNotepad {
         private System.Windows.Forms.DataGridViewTextBoxColumn columnNamespace;
         private System.Windows.Forms.DataGridViewTextBoxColumn columnFileName;
         private System.Windows.Forms.DataGridViewButtonColumn columnBrowse;
+        private System.Windows.Forms.ToolStripMenuItem generateXMLInstanceToolStripMenuItem;
     }
 }

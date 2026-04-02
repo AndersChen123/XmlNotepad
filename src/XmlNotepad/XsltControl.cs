@@ -1,15 +1,14 @@
 ﻿using Microsoft.Web.WebView2.Core;
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.Remoting.Contexts;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml;
-using System.Xml.Xsl;
-using SR = XmlNotepad.StringResources;
 
 namespace XmlNotepad
 {
@@ -18,28 +17,31 @@ namespace XmlNotepad
         public WebView2Exception(string msg) : base(msg) { }
     }
 
+    public interface ITrustService
+    {
+        bool? CanTrustUrl(Uri location);
+
+        Task<bool> PromptUser(Uri location);
+    }
+
     public partial class XsltControl : UserControl
     {
         private readonly Stopwatch _urlWatch = new Stopwatch();
         private string _html;
         private string _fileName;
-        private DateTime _loaded;
         private Uri _baseUri;
         private PerformanceInfo _info = null;
-        private XslCompiledTransform _xslt;
-        private XmlDocument _xsltdoc;
-        private XslCompiledTransform _defaultss;
-        private Uri _xsltUri;
         private ISite _site;
         private XmlUrlResolver _resolver;
         private Settings _settings;
-        private string _defaultSSResource = "XmlNotepad.DefaultSS.xslt";
-        private readonly IDictionary<Uri, bool> _trusted = new Dictionary<Uri, bool>();
         private bool _webInitialized;
+        private bool _webView2Initialized;
         private bool _webView2Supported;
-        private string _tempFile;
-        private bool _usingDefaultXslt;
-        private bool _hasXsltOutput; // whether DOM has <?xsl-output instruction.
+        private AsyncXslt _asyncXslt;
+        private FormTransformProgress _progress;
+        private ITrustService _trustService;
+        private CoreWebView2Environment _environment;
+        private DelayedActions _delayedActions;
 
         public event EventHandler<Exception> WebBrowserException;
 
@@ -49,6 +51,7 @@ namespace XmlNotepad
         {
             InitializeComponent();
             _resolver = new XmlUrlResolver();
+            _delayedActions = new DelayedActions();
         }
 
         /// <summary>
@@ -63,24 +66,56 @@ namespace XmlNotepad
             // This serves 2 purposes, it reclaims memory while XSLT output is not visible
             // and it clears the Find dialog so it does not float over the XmlTreeView.
             this.Display("<html></html>");
-            CleanupTempFile();
+            this.StopAsyncTransform();
+            _asyncXslt.Close();
         }
 
-        void CleanupTempFile()
+        private async void EnsureCoreWebView2(CoreWebView2Environment environment)
         {
-            if (!string.IsNullOrEmpty(_tempFile) && File.Exists(_tempFile))
+            try
             {
-                try
-                {
-                    File.Delete(_tempFile);
-                }
-                catch { }
+                await this.webBrowser2.EnsureCoreWebView2Async(environment);
+                this._delayedActions.StartDelayedAction("CompleteCoreWebView2", CompleteCoreWebView2, TimeSpan.FromMilliseconds(1));
             }
-            this._tempFile = null;
+            catch (Exception ex)
+            {
+                HandleWebView2Exception(ex);
+            }
+        }
+
+        private void HandleWebView2Exception(Exception ex)
+        {
+            // fall back on old web browser control
+            RaiseBrowserException(new WebView2Exception(ex.Message));
+            this.BrowserVersion = "WebBrowser";
+            WebBrowserFallback();
+            this._settings["BrowserVersion"] = "WebBrowser";
+            this._settings["WebView2Exception"] = ex.Message;
+        }
+
+        private void CompleteCoreWebView2()
+        {
+            if (this._webView2Initialized)
+            {
+                if (this.webBrowser2.CoreWebView2 != null)
+                {
+                    this.webBrowser2.CoreWebView2.DOMContentLoaded += CoreWebView2_DOMContentLoaded;
+                    this.webBrowser2.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
+                    this.webBrowser2.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
+                    this.webBrowser2.Visible = true;
+                    this.webBrowser1.Visible = false;
+                    this._webView2Supported = true;
+                }
+            }
+            if (!this._webView2Supported)
+            {
+                WebBrowserFallback();
+            }
         }
 
         private async void InitializeBrowser(string version)
         {
+            this._webInitialized = false;
             try
             {
                 this.BrowserVersion = version;
@@ -90,12 +125,21 @@ namespace XmlNotepad
                     {
                         this.webBrowser2.CoreWebView2InitializationCompleted -= OnCoreWebView2InitializationCompleted;
                         this.webBrowser2.CoreWebView2InitializationCompleted += OnCoreWebView2InitializationCompleted;
-                        CoreWebView2EnvironmentOptions options = new CoreWebView2EnvironmentOptions()
+                        if (this._environment == null)
                         {
-                            AllowSingleSignOnUsingOSPrimaryAccount = true
-                        };
-                        CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(userDataFolder: WebViewUserCache, options: options);
-                        await this.webBrowser2.EnsureCoreWebView2Async(environment);
+                            CoreWebView2EnvironmentOptions options = new CoreWebView2EnvironmentOptions()
+                            {
+                                AllowSingleSignOnUsingOSPrimaryAccount = true
+                            };
+
+                            this._environment = await CoreWebView2Environment.CreateAsync(userDataFolder: WebViewUserCache, options: options);
+                            this._delayedActions.StartDelayedAction("EnsureCoreWebView2", () => EnsureCoreWebView2(this._environment), TimeSpan.FromMilliseconds(1));
+                        }
+                    }
+                    else
+                    {
+                        // we already know webView2 is supported.
+                        this._webInitialized = true;
                     }
                 }
                 else
@@ -108,12 +152,7 @@ namespace XmlNotepad
             }
             catch (Exception ex)
             {
-                // fall back on old web browser control
-                RaiseBrowserException(new WebView2Exception(ex.Message));
-                this.BrowserVersion = "WebBrowser";
-                this._settings["BrowserVersion"] = "WebBrowser";
-                WebBrowserFallback();
-                this._settings["WebView2Exception"] = ex.Message;
+                HandleWebView2Exception(ex);
             }
         }
 
@@ -156,23 +195,14 @@ namespace XmlNotepad
                 if (e.InitializationException != null)
                 {
                     // save this error someplace so we can show it to the user later when they try and enable WebView2.
-                    RaiseBrowserException(new WebView2Exception(e.InitializationException.Message));
+                    RaiseBrowserException(new WebView2Exception(e.InitializationException.Message));                    
                 }
-            }
-            if (this.webBrowser2.CoreWebView2 != null)
-            {
-                this.webBrowser2.CoreWebView2.DOMContentLoaded += CoreWebView2_DOMContentLoaded;
-                this.webBrowser2.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
-                this.webBrowser2.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
-                this.webBrowser2.Visible = true;
-                this.webBrowser1.Visible = false;
-                this._webView2Supported = true;
             }
             else
             {
-                WebBrowserFallback();
+                this._webView2Initialized = true;
+                this._webInitialized = true;
             }
-            _webInitialized = true;
         }
 
         private void CoreWebView2_NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e)
@@ -226,10 +256,11 @@ namespace XmlNotepad
             _urlWatch.Reset();
             _urlWatch.Start();
 
-            this.webBrowser2.Visible = UseWebView2();
-            this.webBrowser1.Visible = !UseWebView2();
+            bool useWebView2 = UseWebView2();
+            this.webBrowser2.Visible = useWebView2;
+            this.webBrowser1.Visible = !useWebView2;
 
-            if (UseWebView2())
+            if (useWebView2)
             {
                 var uri = new Uri(filename);
                 try
@@ -285,21 +316,22 @@ namespace XmlNotepad
 
         private void Display(string content)
         {
-            CleanupTempFile();
             if (content != this._html && _webInitialized)
             {
                 _urlWatch.Reset();
                 _urlWatch.Start();
 
-                this.webBrowser2.Visible = UseWebView2();
-                this.webBrowser1.Visible = !UseWebView2();
+                bool useWebView2 = UseWebView2();
+                this.webBrowser2.Visible = useWebView2;
+                this.webBrowser1.Visible = !useWebView2;
 
-                if (UseWebView2())
+                if (useWebView2)
                 {
                     try
                     {
                         if (content.Length > 1000000)
                         {
+                            // NavigateToString is unfortunately limited to 1 mb.
                             content = content.Substring(0, 1000000) + "<h1>content truncated...";
                         }
                         // this has a 1mb limit for some unknown reason.
@@ -343,11 +375,11 @@ namespace XmlNotepad
             }
         }
 
-        public bool IgnoreDTD { get; set; }
-
         public bool EnableScripts { get; set; }
 
         public string BrowserVersion { get; set; }
+
+        private string _defaultSSResource = "XmlNotepad.DefaultSS.xslt";
 
         public string DefaultStylesheetResource
         {
@@ -355,22 +387,16 @@ namespace XmlNotepad
             set { this._defaultSSResource = value; }
         }
 
-        public bool HasXsltOutput
-        {
-            get => _hasXsltOutput;
-            set
-            {
-                if (value != _hasXsltOutput)
-                {
-                    _defaultss = null;
-                    _hasXsltOutput = value;
-                }
-            }
-        }
+        // An override for hasxsltoutput.
+        public bool? HasXsltOutput { get; set; }
 
         public void SetSite(ISite site)
         {
             this._site = site;
+
+            _trustService = (ITrustService)site.GetService(typeof(ITrustService));
+            _asyncXslt = new AsyncXslt(_trustService);
+
             IServiceProvider sp = (IServiceProvider)site;
             this._resolver = new XmlProxyResolver(sp);
             this._settings = (Settings)sp.GetService(typeof(Settings));
@@ -378,18 +404,13 @@ namespace XmlNotepad
             this._settings.Changed += OnSettingsChanged;
 
             // initial settings.
-            this.IgnoreDTD = this._settings.GetBoolean("IgnoreDTD");
             this.EnableScripts = this._settings.GetBoolean("EnableXsltScripts");
             this.InitializeBrowser(this._settings.GetString("BrowserVersion"));
         }
 
         private void OnSettingsChanged(object sender, string name)
         {
-            if (name == "IgnoreDTD")
-            {
-                this.IgnoreDTD = this._settings.GetBoolean("IgnoreDTD");
-            }
-            else if (name == "EnableXsltScripts")
+            if (name == "EnableXsltScripts")
             {
                 this.EnableScripts = this._settings.GetBoolean("EnableXsltScripts");
             }
@@ -399,8 +420,8 @@ namespace XmlNotepad
             }
             else if (name == "Font" || name == "Theme" || name == "Colors" || name == "LightColors" || name == "DarkColors")
             {
-                _defaultss = null;
-                if (this._usingDefaultXslt)
+                this._asyncXslt.ResetDefaultStyleSheet();
+                if (this._asyncXslt.UsingDefaultXslt)
                 {
                     string id = this.Handle.ToString(); // make sure action is unique to this control instance since we have 2!
                     _settings.DelayedActions.StartDelayedAction("Transform" + id, UpdateTransform, TimeSpan.FromMilliseconds(50));
@@ -412,7 +433,7 @@ namespace XmlNotepad
         {
             if (_previousTransform != null)
             {
-                DisplayXsltResults(_previousTransform.document, _previousTransform.xsltfilename, _previousTransform.outpath, 
+                _ = DisplayXsltResults(_previousTransform.document, _previousTransform.xsltfilename, _previousTransform.outpath, 
                     _previousTransform.userSpecifiedOutput);
             }
         }
@@ -429,263 +450,164 @@ namespace XmlNotepad
             }
         }
 
-        class Context
-        {
-            public XmlDocument document;
-            public string xsltfilename;
-            public string outpath;
-            public bool userSpecifiedOutput;
-        }
-
-        Context _previousTransform;
+        AsyncXsltContext _previousTransform;
+        bool _promptingUser = false;
 
         /// <summary>
         /// Run an XSLT transform and show the results.
         /// </summary>
-        /// <param name="context">The document to transform</param>
+        /// <param name="doc">The document to transform</param>
         /// <param name="xsltfilename">The xslt file to use</param>
         /// <param name="outpath">Output file name hint.</param>
         /// <param name="userSpecifiedOutput">Whether output name is non-negotiable.</param>
-        /// <returns>The output file name or null if DisableOutputFile is true</returns>
-        public string DisplayXsltResults(XmlDocument context, string xsltfilename, string outpath = null, bool userSpecifiedOutput = false)
+        /// <param name="hasDefaultXsltOutput">Whether document has path to use for xslt output file</param>
+        public async Task<string> DisplayXsltResults(XmlDocument doc, string xsltfilename, string outpath = null, bool userSpecifiedOutput = false, bool hasDefaultXsltOutput = false)
         {
-            if (!this._webInitialized)
+            if (!this._webInitialized || this._asyncXslt == null)
             {
                 return null;
             }
 
-            _previousTransform = new Context()
+            if (_previousTransform != null)
             {
-                document = context,
+                _previousTransform.Cancel();
+            }
+
+            if (HasXsltOutput.HasValue)
+            {
+                hasDefaultXsltOutput = HasXsltOutput.Value;
+            }
+
+            this._info = new PerformanceInfo();
+
+            var context = new AsyncXsltContext()
+            {
+                document = doc,
                 xsltfilename = xsltfilename,
                 outpath = outpath,
-                userSpecifiedOutput = userSpecifiedOutput
+                userSpecifiedOutput = userSpecifiedOutput,
+                hasDefaultXsltOutput = hasDefaultXsltOutput,
+                defaultSSResource = this._defaultSSResource,
+                baseUri = this.GetBaseUri(),                
+                enableScripts = this.EnableScripts,
+                disableOutputFile = this.DisableOutputFile,
+                resolver = this._resolver,
+                info = this._info,
             };
 
-            this.CleanupTempFile();
-            Uri resolved = null;
-            try
+            if (_previousTransform != null && _previousTransform.xsltfilename == xsltfilename)
             {
-                XslCompiledTransform transform;
-                if (string.IsNullOrEmpty(xsltfilename))
-                {
-                    transform = GetDefaultStylesheet();
-                    this._usingDefaultXslt = true;
-                    if (this._settings.GetBoolean("DisableDefaultXslt"))
-                    {
-                        context = new XmlDocument();
-                        context.LoadXml("<Note>Default styling of your XML documents is disabled in your Options</Note>");
-                    }
-                }
-                else
-                {
-                    resolved = new Uri(_baseUri, xsltfilename);
-                    if (resolved != this._xsltUri || IsModified())
-                    {
-                        _xslt = new XslCompiledTransform();
-                        this._loaded = DateTime.Now;
-                        var settings = new XsltSettings(true, this.EnableScripts);
-                        settings.EnableScript = (_trusted.ContainsKey(resolved));
-                        var rs = new XmlReaderSettings();
-                        rs.DtdProcessing = this.IgnoreDTD ? DtdProcessing.Ignore : DtdProcessing.Parse;
-                        rs.XmlResolver = _resolver;
-                        using (XmlReader r = XmlReader.Create(resolved.AbsoluteUri, rs))
-                        {
-                            _xslt.Load(r, settings, _resolver);
-                        }
+                context.estimatedOutputSize = _previousTransform.estimatedOutputSize;
+            }
+            _previousTransform = context;
 
-                        // the XSLT DOM is also handy to have around for GetOutputMethod
-                        this._xsltdoc = new XmlDocument();
-                        this._xsltdoc.Load(resolved.AbsoluteUri);
-                    }
-                    transform = _xslt;
-                    this._usingDefaultXslt = false;
-                }
+            this._delayedActions.StartDelayedAction("SlowTransformProgress",
+                OnSlowTransform, TimeSpan.FromSeconds(1));
 
-                if (string.IsNullOrEmpty(outpath))
+            bool tryAgain = false;
+            string path = null;
+            do 
+            {
+                tryAgain = false;
+                try
                 {
-                    if (!DisableOutputFile)
+                    path = await this._asyncXslt.TransformDocumentAsync(_previousTransform);
+                }
+                catch (System.Xml.Xsl.XsltException x)
+                {
+                    StopAsyncTransform();
+                    if (x.Message.Contains("XsltSettings"))
                     {
-                        if (!string.IsNullOrEmpty(xsltfilename))
+                        var resolved = new Uri(context.baseUri, context.xsltfilename);
+                        if (_trustService.CanTrustUrl(resolved) == null)
                         {
-                            outpath = this.GetXsltOutputFileName(xsltfilename);
-                        }
-                        else
-                        {
-                            // default stylesheet produces html
-                            this._tempFile = outpath = GetWritableFileName("DefaultXsltOutput.htm");
+                            _promptingUser = true;
+                            if (await this._trustService.PromptUser(resolved))
+                            {
+                                // try again
+                                tryAgain = true;
+                                context.output = null;
+                                context.outpath = null;
+                            }
+                            _promptingUser = false;
                         }
                     }
-                }
-                else if (!userSpecifiedOutput)
-                {
-                    var ext = GetDefaultOutputExtension();
-                    var basePath = Path.Combine(Path.GetDirectoryName(outpath), Path.GetFileNameWithoutExtension(outpath));
-                    outpath = basePath + ext;
-                    outpath = GetWritableFileName(outpath);
-                }
-                else
-                {
-                    outpath = GetWritableFileName(outpath);
-                }
-
-                if (null != transform)
-                {
-                    var dir = Path.GetDirectoryName(outpath);
-                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    if (!tryAgain)
                     {
-                        Directory.CreateDirectory(dir);
+                        this._asyncXslt.WriteError(x);
                     }
+                }
+                catch (Exception x)
+                {
+                    this._asyncXslt.WriteError(x);
+                }
+            } while (tryAgain);
 
-                    var settings = new XmlReaderSettings();
-                    settings.XmlResolver = new XmlProxyResolver(this._site);
-                    settings.DtdProcessing = this.IgnoreDTD ? DtdProcessing.Ignore : DtdProcessing.Parse;
-                    var xmlReader = XmlIncludeReader.CreateIncludeReader(context, settings, GetBaseUri().AbsoluteUri);
-                    if (string.IsNullOrEmpty(outpath))
+            StopAsyncTransform();
+
+            if (context == this._previousTransform)
+            {
+                if (!string.IsNullOrEmpty(context.output))
+                {
+                    Display(context.output);
+                }
+                else if (!string.IsNullOrEmpty(context.outpath))
+                {
+                    if (File.Exists(context.outpath))
                     {
-                        using (StringWriter writer = new StringWriter())
-                        {
-                            transform.Transform(xmlReader, null, writer);
-                            this._xsltUri = resolved;
-                            Display(writer.ToString());
-                        }
+                        var size = new FileInfo(context.outpath).Length;
+                        Debug.WriteLine($"Display {context.outpath} ({size})");
+                        DisplayFile(context.outpath);
                     }
                     else
                     {
-                        bool noBom = false;
-                        Settings appSettings = (Settings)this._site.GetService(typeof(Settings));
-                        if (appSettings != null)
-                        {
-                            noBom = (bool)appSettings["NoByteOrderMark"];
-                        }
-                        if (noBom)
-                        {
-                            // cache to an inmemory stream so we can strip the BOM.
-                            using (MemoryStream ms = new MemoryStream())
-                            {
-                                transform.Transform(xmlReader, null, ms);
-                                ms.Seek(0, SeekOrigin.Begin);
-                                EncodingHelpers.WriteFileWithoutBOM(ms, outpath);
-                            }
-                        }
-                        else
-                        {
-                            using (FileStream writer = new FileStream(outpath, FileMode.OpenOrCreate, FileAccess.Write))
-                            {
-                                Stopwatch watch = new Stopwatch();
-                                watch.Start();
-                                transform.Transform(xmlReader, null, writer);
-                                watch.Stop();
-                                this._info = new PerformanceInfo();
-                                this._info.XsltMilliseconds = watch.ElapsedMilliseconds;
-                                Debug.WriteLine("Transform in {0} milliseconds", watch.ElapsedMilliseconds);
-                                this._xsltUri = resolved;
-                            }
-                        }
-
-                        DisplayFile(outpath);
+                        Debug.WriteLine($"Display {context.outpath} (FILE NOT FOUND)");
                     }
                 }
             }
-            catch (System.Xml.Xsl.XsltException x)
-            {
-                if (x.Message.Contains("XsltSettings"))
-                {
-                    if (!_trusted.ContainsKey(resolved) &&
-                        MessageBox.Show(this, SR.XslScriptCodePrompt, SR.XslScriptCodeCaption,
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) == DialogResult.Yes)
-                    {
-                        _trusted[resolved] = true;
-                        return DisplayXsltResults(context, xsltfilename, outpath);
-                    }
-                }
-                WriteError(x);
-            }
-            catch (Exception x)
-            {
-                WriteError(x);
-            }
-
-            return outpath;
+            return path;
         }
 
-        private string GetXsltOutputFileName(string xsltfilename)
+
+        private void StopAsyncTransform()
         {
-            // pick a good default filename ... this means we need to know the <xsl:output method> and unfortunately 
-            // XslCompiledTransform doesn't give us that so we need to get it outselves.
-            var ext = GetDefaultOutputExtension();
-            string outpath = null;
-            if (string.IsNullOrEmpty(xsltfilename))
+            this._delayedActions.CancelDelayedAction("SlowTransformProgress");
+            if (this._progress != null)
             {
-                var basePath = Path.GetFileNameWithoutExtension(this._baseUri.GetComponents(UriComponents.Path, UriFormat.SafeUnescaped));
-                outpath = basePath + "_output" + ext;
+                this._progress.Close();
+                this._progress = null;
             }
-            else
-            {
-                outpath = Path.GetFileNameWithoutExtension(xsltfilename) + "_output" + ext;
-            }
-            return GetWritableFileName(outpath);
+
         }
 
-        private string GetWritableFileName(string fileName)
+        private void OnSlowTransform()
         {
-            try
+            if (_previousTransform != null && _previousTransform.running && !_promptingUser)
             {
-                if (string.IsNullOrEmpty(fileName))
+                this._progress = new FormTransformProgress();
+                this._progress.SetProgress(0, (int)this._previousTransform.Size, (int)this._previousTransform.Position);
+                this._delayedActions.StartDelayedAction("UpdateTransformProgress", UpdateTransformProgress, TimeSpan.FromMilliseconds(30));
+                if (this._progress.ShowDialog() == DialogResult.Cancel)
                 {
-                    fileName = GetXsltOutputFileName(null);
+                    this._previousTransform.Cancel();
                 }
-
-                // if the fileName is a full path then honor that request.
-                Uri uri = new Uri(fileName, UriKind.RelativeOrAbsolute);
-                var resolved = new Uri(this._baseUri, uri);
-
-                // If the XML file is from HTTP then put XSLT output in the %TEMP% folder.
-                if (resolved.Scheme != "file")
-                {
-                    uri = new Uri(Path.GetTempPath());
-                    this._tempFile = new Uri(uri, fileName).LocalPath;
-                    return this._tempFile;
-                }
-
-                string path = resolved.LocalPath;
-                if (resolved == this._baseUri)
-                {
-                    // can't write to the same location as the XML file or we will lose the XML file!
-                    path = Path.Combine(Path.GetDirectoryName(path), Path.GetFileNameWithoutExtension(path) + "_output" + Path.GetExtension(path));
-                }
-
-                var dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-
-                // make sure we can write to the location.
-                using (FileStream fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read))
-                {
-                    var test = System.Text.UTF8Encoding.UTF8.GetBytes("test");
-                    fs.Write(test, 0, test.Length);
-                }
-
-                return path;
             }
-            catch (Exception ex)
+        }
+
+        private void UpdateTransformProgress()
+        {
+            if (this._progress != null)
             {
-                Debug.WriteLine("XsltControl.GetWritableBaseUri exception " + ex.Message);
+                this._progress.SetProgress(0, (int)this._previousTransform.Size, (int)this._previousTransform.Position);
+                this._delayedActions.StartDelayedAction("UpdateTransformProgress", UpdateTransformProgress, TimeSpan.FromMilliseconds(30));
             }
-
-            // We don't have write permissions?
-            Uri baseUri = new Uri(Path.GetTempPath());
-            this._tempFile = new Uri(baseUri, fileName).LocalPath;
-            return this._tempFile;
         }
 
         public string GetOutputFileFilter(string customFileName = null)
         {
             // return something like this:
             // XML files (*.xml)|*.xml|XSL files (*.xsl)|*.xsl|XSD files (*.xsd)|*.xsd|All files (*.*)|*.*
-            var ext = GetDefaultOutputExtension(customFileName);
+            var ext = this._asyncXslt.GetDefaultOutputExtension(customFileName);
             switch (ext)
             {
                 case ".xml":
@@ -695,170 +617,6 @@ namespace XmlNotepad
                 default:
                     return "Text files(*.txt) | *.txt|All files (*.*)|*.*";
             }
-        }
-
-
-        public string GetDefaultOutputExtension(string customFileName = null)
-        {
-            string ext = ".xml";
-            try
-            {
-                if (this._xsltdoc == null)
-                {
-                    string path = customFileName;
-                    var resolved = new Uri(_baseUri, path);
-                    this._xsltdoc = new XmlDocument();
-                    this._xsltdoc.Load(resolved.AbsoluteUri);
-                }
-                var method = GetOutputMethod(this._xsltdoc);
-                if (method.ToLower() == "html")
-                {
-                    ext = ".htm";
-                }
-                else if (method.ToLower() == "text")
-                {
-                    ext = ".txt";
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("XsltControl.GetDefaultOutputExtension exception " + ex.Message);
-            }
-            return ext;
-        }
-
-        string GetOutputMethod(XmlDocument xsltdoc)
-        {
-            var ns = xsltdoc.DocumentElement.NamespaceURI;
-            string method = "xml"; // the default.
-            var mgr = new XmlNamespaceManager(xsltdoc.NameTable);
-            mgr.AddNamespace("xsl", ns);
-            XmlElement e = xsltdoc.SelectSingleNode("//xsl:output", mgr) as XmlElement;
-            if (e != null)
-            {
-                var specifiedMethod = e.GetAttribute("method");
-                if (!string.IsNullOrEmpty(specifiedMethod))
-                {
-                    return specifiedMethod;
-                }
-            }
-
-            // then we need to figure out the default method which is xml unless there's an html element here
-            foreach (XmlNode node in xsltdoc.DocumentElement.ChildNodes)
-            {
-                if (node is XmlElement child)
-                {
-                    if (string.IsNullOrEmpty(child.NamespaceURI) && string.Compare(child.LocalName, "html", StringComparison.OrdinalIgnoreCase) == 0)
-                    {
-                        return "html";
-                    }
-                    else
-                    {
-                        // might be an <xsl:template> so look inside these too...
-                        foreach (XmlNode subnode in child.ChildNodes)
-                        {
-                            if (subnode is XmlElement grandchild)
-                            {
-                                if ((string.IsNullOrEmpty(grandchild.NamespaceURI) || grandchild.NamespaceURI.Contains("xhtml"))
-                                    && string.Compare(grandchild.LocalName, "html", StringComparison.OrdinalIgnoreCase) == 0)
-                                {
-                                    return "html";
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return method;
-        }
-
-        private void WriteError(Exception e)
-        {
-            using (StringWriter writer = new StringWriter())
-            {
-                writer.WriteLine("<html><body><h3>");
-                writer.WriteLine(SR.TransformErrorCaption);
-                writer.WriteLine("</h3></body></html>");
-                while (e != null)
-                {
-                    writer.WriteLine(e.Message);
-                    e = e.InnerException;
-                }
-                Display(writer.ToString());
-            }
-        }
-
-        string GetHexColor(Color c)
-        {
-            return System.Drawing.ColorTranslator.ToHtml(c);
-        }
-
-        string GetDefaultStyles(string html)
-        {
-            var font = (string)this._settings["FontFamily"];
-            var fontSize = (double)this._settings["FontSize"];
-            html = html.Replace("$FONT_FAMILY", font != null ? font : "Consolas, Courier New");
-            html = html.Replace("$FONT_SIZE", font != null ? fontSize + "pt" : "10pt");
-
-            var theme = (ColorTheme)_settings["Theme"];
-            var colors = (ThemeColors)_settings[theme == ColorTheme.Light ? "LightColors" : "DarkColors"];
-            html = html.Replace("$BACKGROUND_COLOR", GetHexColor(colors.ContainerBackground));
-            html = html.Replace("$ATTRIBUTE_NAME_COLOR", GetHexColor(colors.Attribute));
-            html = html.Replace("$ATTRIBUTE_VALUE_COLOR", GetHexColor(colors.Text));
-            html = html.Replace("$PI_COLOR", GetHexColor(colors.PI));
-            html = html.Replace("$TEXT_COLOR", GetHexColor(colors.Text));
-            html = html.Replace("$COMMENT_COLOR", GetHexColor(colors.Comment));
-            html = html.Replace("$ELEMENT_COLOR", GetHexColor(colors.Element));
-            html = html.Replace("$MARKUP_COLOR", GetHexColor(colors.Markup));
-            html = html.Replace("$SIDENOTE_COLOR", GetHexColor(colors.EditorBackground));
-            html = html.Replace("$OUTPUT_TIP_DISPLAY", this.HasXsltOutput ? "none" : "block");            
-            return html;
-        }
-
-        XslCompiledTransform GetDefaultStylesheet()
-        {
-            if (_defaultss != null)
-            {
-                return _defaultss;
-            }
-            using (Stream stream = this.GetType().Assembly.GetManifestResourceStream(this._defaultSSResource))
-            {
-                if (null != stream)
-                {
-                    using (StreamReader sr = new StreamReader(stream))
-                    {
-                        string html = null;
-                        html = GetDefaultStyles(sr.ReadToEnd());
-
-                        using (XmlReader reader = XmlReader.Create(new StringReader(html)))
-                        {
-                            XslCompiledTransform t = new XslCompiledTransform();
-                            t.Load(reader);
-                            _defaultss = t;
-                        }
-                        // the XSLT DOM is also handy to have around for GetOutputMethod
-                        stream.Seek(0, SeekOrigin.Begin);
-                        this._xsltdoc = new XmlDocument();
-                        this._xsltdoc.Load(stream);
-                    }
-                }
-                else
-                {
-                    throw new Exception(string.Format("You have a build problem: resource '{0} not found", this._defaultSSResource));
-                }
-            }
-            return _defaultss;
-        }
-
-        bool IsModified()
-        {
-            if (this._xsltUri.IsFile)
-            {
-                string path = this._xsltUri.LocalPath;
-                DateTime lastWrite = File.GetLastWriteTime(path);
-                return this._loaded < lastWrite;
-            }
-            return false;
         }
 
 

@@ -1,4 +1,9 @@
-﻿using System.Xml;
+﻿using Microsoft.Xml;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Xml;
+using System.Xml.Schema;
 
 namespace XmlNotepad
 {
@@ -31,8 +36,6 @@ namespace XmlNotepad
     {
         private XmlHelpers() { }
 
-        public const string XmlnsUri = "http://www.w3.org/2000/xmlns/";
-        public const string XmlUri = "http://www.w3.org/XML/1998/namespace";
 
         public static XmlName ParseName(XmlNode context, string name, XmlNodeType nt)
         {
@@ -45,11 +48,11 @@ namespace XmlNotepad
                 result.LocalName = name.Substring(i + 1);
                 if (prefix == "xml")
                 {
-                    result.NamespaceUri = XmlUri;
+                    result.NamespaceUri = XmlStandardUris.XmlUri;
                 }
                 else if (prefix == "xmlns")
                 {
-                    result.NamespaceUri = XmlnsUri;
+                    result.NamespaceUri = XmlStandardUris.XmlnsUri;
                 }
                 else
                 {
@@ -62,7 +65,7 @@ namespace XmlNotepad
                 result.LocalName = name;
                 if (name == "xmlns")
                 {
-                    result.NamespaceUri = XmlnsUri;
+                    result.NamespaceUri = XmlStandardUris.XmlnsUri;
                 }
                 else if (nt == XmlNodeType.Attribute)
                 {
@@ -87,11 +90,11 @@ namespace XmlNotepad
                 result.LocalName = name.Substring(i + 1);
                 if (prefix == "xml")
                 {
-                    result.NamespaceUri = XmlUri;
+                    result.NamespaceUri = XmlStandardUris.XmlUri;
                 }
                 else if (prefix == "xmlns")
                 {
-                    result.NamespaceUri = XmlnsUri;
+                    result.NamespaceUri = XmlStandardUris.XmlnsUri;
                 }
                 else
                 {
@@ -103,7 +106,7 @@ namespace XmlNotepad
                 result.LocalName = name;
                 if (name == "xmlns")
                 {
-                    result.NamespaceUri = XmlnsUri;
+                    result.NamespaceUri = XmlStandardUris.XmlnsUri;
                 }
                 else if (nt == XmlNodeType.Attribute)
                 {
@@ -115,6 +118,18 @@ namespace XmlNotepad
                 }
             }
             return result;
+        }
+
+        public static bool IsDefaultNamespaceInScope(XmlNode context, string nsuri)
+        {
+            var scope = GetNamespaceScope(context);
+            return scope.LookupNamespace("") == nsuri;
+        }
+
+        public static bool IsPrefixInScope(XmlNode context, string prefix)
+        {
+            var scope = GetNamespaceScope(context);
+            return scope.HasNamespace(prefix);
         }
 
         public static XmlNamespaceManager GetNamespaceScope(XmlNode context)
@@ -131,6 +146,7 @@ namespace XmlNotepad
             XmlNameTable nt = owner.NameTable;
             XmlNamespaceManager nsmgr = new XmlNamespaceManager(nt);
             XmlNode parent = context;
+
             while (parent != null)
             {
                 if (parent is XmlElement)
@@ -139,7 +155,7 @@ namespace XmlNotepad
                     {
                         foreach (XmlAttribute a in parent.Attributes)
                         {
-                            if (a.NamespaceURI == XmlnsUri)
+                            if (a.NamespaceURI == XmlStandardUris.XmlnsUri)
                             {
                                 string prefix = nt.Add(a.LocalName);
                                 if (prefix == "xmlns") prefix = "";
@@ -151,9 +167,22 @@ namespace XmlNotepad
                         }
                     }
                 }
-                parent = parent.ParentNode;
+                if (parent.NodeType == XmlNodeType.Attribute)
+                {
+                    parent = ((XmlAttribute)parent).OwnerElement;
+                }
+                else
+                {
+                    parent = parent.ParentNode;
+                }
             }
             return nsmgr;
+        }
+
+        public static string GetXPathLocation(XmlNode context, XmlNamespaceManager scope)
+        {
+            XPathGenerator gen = new XPathGenerator();
+            return gen.GetXPath(context, scope);
         }
 
         public static bool MissingNamespace(XmlName name)
@@ -170,7 +199,7 @@ namespace XmlNotepad
                 count++;
             }
             name.NamespaceUri = "uri:" + count;
-            XmlAttribute xmlns = context.OwnerDocument.CreateAttribute("xmlns", name.Prefix, XmlHelpers.XmlnsUri);
+            XmlAttribute xmlns = context.OwnerDocument.CreateAttribute("xmlns", name.Prefix, XmlStandardUris.XmlnsUri);
             if (context.HasAttribute(xmlns.Name))
             {
                 // already have an attribute with this name! This is a tricky case where
@@ -193,7 +222,146 @@ namespace XmlNotepad
         {
             if (node == null) return false;
             return node.NodeType == XmlNodeType.Attribute &&
-                (node.LocalName == "type" && node.NamespaceURI == "http://www.w3.org/2001/XMLSchema-instance");
+                node.NamespaceURI == "http://www.w3.org/2001/XMLSchema-instance";
+        }
+
+        public static XmlReaderSettings CreateXmlSettings(XmlResolver resolver = null, ValidationEventHandler handler = null)
+        {
+            var rs = new XmlReaderSettings();
+            var ignoreDtd = Settings.Instance.GetBoolean("IgnoreDTD");
+            rs.DtdProcessing = ignoreDtd ? DtdProcessing.Ignore : DtdProcessing.Parse;
+            rs.NameTable = new NameTable();
+            if (resolver != null)
+            {
+                rs.XmlResolver = resolver;
+            } 
+            else if (!ignoreDtd)
+            {
+                rs.XmlResolver = new XmlUrlResolver
+                {
+                    Credentials = CredentialCache.DefaultCredentials
+                };
+            }
+            if (handler != null)
+            {
+                rs.ValidationEventHandler += handler;
+            }
+            return rs;
+        }
+
+        public static XmlReader ReadXml(string path, XmlResolver resolver = null, ValidationEventHandler handler = null)
+        {
+            var rs = CreateXmlSettings(resolver, handler);
+            return XmlReader.Create(path, rs);
+        }
+
+        public static XmlReader ReadXml(Stream stm, XmlResolver resolver = null, ValidationEventHandler handler = null)
+        {
+            var rs = CreateXmlSettings(resolver, handler);
+            return XmlReader.Create(stm, rs);
+        }
+
+        public static XmlReader ReadXml(TextReader reader, XmlResolver resolver = null, ValidationEventHandler handler = null)
+        {
+            var rs = CreateXmlSettings(resolver, handler);
+            return XmlReader.Create(reader, rs);
         }
     }
+
+
+    public class MyXmlNamespaceResolver : System.Xml.IXmlNamespaceResolver
+    {
+        private System.Xml.XmlNameTable _nameTable;
+        private XmlNode _context;
+        private string _emptyAtom;
+
+        public MyXmlNamespaceResolver(System.Xml.XmlNameTable nameTable)
+        {
+            this._nameTable = nameTable;
+            this._emptyAtom = nameTable.Add(string.Empty);
+        }
+
+        public XmlNode Context
+        {
+            get
+            {
+                return this._context;
+            }
+            set
+            {
+                this._context = value;
+            }
+        }
+
+        public System.Xml.XmlNameTable NameTable
+        {
+            get
+            {
+                return this._nameTable;
+            }
+        }
+
+        private string Atomized(string s)
+        {
+            if (s == null) return null;
+            if (s.Length == 0) return this._emptyAtom;
+            return this._nameTable.Add(s);
+        }
+
+        public string LookupPrefix(string namespaceName, bool atomizedName)
+        {
+            string result = null;
+            if (_context != null)
+            {
+                result = _context.GetPrefixOfNamespace(namespaceName);
+            }
+            return Atomized(result);
+        }
+
+        public string LookupPrefix(string namespaceName)
+        {
+            string result = null;
+            if (_context != null)
+            {
+                result = _context.GetPrefixOfNamespace(namespaceName);
+            }
+            return Atomized(result);
+        }
+
+        public string LookupNamespace(string prefix, bool atomizedName)
+        {
+            return LookupNamespace(prefix);
+        }
+
+        public string LookupNamespace(string prefix)
+        {
+            string result = null;
+            if (_context != null)
+            {
+                result = _context.GetNamespaceOfPrefix(prefix);
+            }
+            return Atomized(result);
+        }
+
+        public IDictionary<string, string> GetNamespacesInScope(System.Xml.XmlNamespaceScope scope)
+        {
+            Dictionary<string, string> dict = new Dictionary<string, string>();
+            if (this._context != null)
+            {
+                foreach (XmlAttribute a in this._context.SelectNodes("namespace::*"))
+                {
+                    string nspace = a.InnerText;
+                    string prefix = a.Prefix;
+                    if (prefix == "xmlns")
+                    {
+                        prefix = "";
+                    }
+                    dict[prefix] = nspace;
+                }
+            }
+            return dict;
+        }
+
+    }
+
 }

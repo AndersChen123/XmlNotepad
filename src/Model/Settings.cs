@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -35,6 +35,7 @@ namespace XmlNotepad
     public class ThemeColors : IXmlSerializable
     {
         public Color Element = Color.Transparent;
+        public Color SchemaAwareTextColor = Color.Transparent;
         public Color Attribute = Color.Transparent;
         public Color Text = Color.Transparent;
         public Color Comment = Color.Transparent;
@@ -48,7 +49,7 @@ namespace XmlNotepad
 
         public override int GetHashCode()
         {
-            return Element.GetHashCode() + Attribute.GetHashCode() + Text.GetHashCode() + Comment.GetHashCode() +
+            return Element.GetHashCode() + SchemaAwareTextColor.GetHashCode() + Attribute.GetHashCode() + Text.GetHashCode() + Comment.GetHashCode() +
                 PI.GetHashCode() + CDATA.GetHashCode() + Background.GetHashCode() + ContainerBackground.GetHashCode() +
                 EditorBackground.GetHashCode() + Markup.GetHashCode();
         }
@@ -60,6 +61,7 @@ namespace XmlNotepad
                 return new ThemeColors()
                 {
                     Element = Color.FromArgb(0, 64, 128),
+                    SchemaAwareTextColor = Color.FromArgb(0, 134, 198),
                     Attribute = Color.Maroon,
                     Text = Color.Black,
                     Comment = Color.Green,
@@ -76,6 +78,7 @@ namespace XmlNotepad
                 return new ThemeColors()
                 {
                     Element = Color.FromArgb(0x35, 0x7D, 0xCE),
+                    SchemaAwareTextColor = Color.FromArgb(13, 85, 166),
                     Attribute = Color.FromArgb(0x92, 0xCA, 0xF3),
                     Text = Color.FromArgb(0xC0, 0xC0, 0xC0),
                     Comment = Color.FromArgb(0x45, 0x8A, 0x23),
@@ -101,6 +104,7 @@ namespace XmlNotepad
         internal void Merge(ThemeColors defaults)
         {
             Element = MergeColor(this.Element, defaults.Element);
+            SchemaAwareTextColor = MergeColor(this.SchemaAwareTextColor, defaults.SchemaAwareTextColor);
             Attribute = MergeColor(this.Attribute, defaults.Attribute);
             Text = MergeColor(this.Text, defaults.Text);
             Comment = MergeColor(this.Comment, defaults.Comment);
@@ -126,6 +130,7 @@ namespace XmlNotepad
             if (t != null)
             {
                 return this.Element == t.Element &&
+                    this.SchemaAwareTextColor == t.SchemaAwareTextColor && 
                     this.Attribute == t.Attribute &&
                     this.Text == t.Text &&
                     this.Comment == t.Comment &&
@@ -173,6 +178,9 @@ namespace XmlNotepad
                                 case "Element":
                                     this.Element = c;
                                     break;
+                                case "SchemaAwareTextColor":
+                                    this.SchemaAwareTextColor = c;
+                                    break;
                                 case "Attribute":
                                     this.Attribute = c;
                                     break;
@@ -208,6 +216,7 @@ namespace XmlNotepad
         public void WriteXml(XmlWriter writer)
         {
             writer.WriteElementString("Element", tc.ConvertToString(this.Element));
+            writer.WriteElementString("SchemaAwareTextColor", tc.ConvertToString(this.SchemaAwareTextColor));
             writer.WriteElementString("Attribute", tc.ConvertToString(this.Attribute));
             writer.WriteElementString("Text", tc.ConvertToString(this.Text));
             writer.WriteElementString("Comment", tc.ConvertToString(this.Comment));
@@ -247,7 +256,7 @@ namespace XmlNotepad
         private readonly Hashtable _map = new Hashtable();
         private DelayedActions _delayedActions = null;
         private PersistentFileNames _pfn;
-
+        private bool _isDirty;
         public static string DefaultUpdateLocation = "https://lovettsoftwarestorage.blob.core.windows.net/downloads/XmlNotepad/Updates.xml";
 
         /// <summary>
@@ -268,6 +277,10 @@ namespace XmlNotepad
         {
             _instance = this;
         }
+
+        public bool IsDirty => this._isDirty;
+
+        public bool DiscardChanges { get; set; } = false;
 
         public ValueMatchHandler Comparer
         {
@@ -364,6 +377,10 @@ namespace XmlNotepad
                 if (!this.SettingValueMatches(this._map[name], value))
                 {
                     this._map[name] = value;
+                    if (!(value is SchemaCache) && name != "SettingsLocation")
+                    {
+                        this._isDirty = true;
+                    }
                     OnChanged(name);
                 }
             }
@@ -389,7 +406,7 @@ namespace XmlNotepad
             // we don't use the serializer because it's too slow to fire up.
             try
             {
-                using (var r = new XmlTextReader(filename))
+                using (var r = XmlHelpers.ReadXml(filename))
                 {
                     if (r.IsStartElement("Settings"))
                     {
@@ -436,6 +453,7 @@ namespace XmlNotepad
                 Debug.WriteLine("Load settings failed: " + ex.Message);
             }
 
+            this._isDirty = false;
             this.FileName = filename;
         }
 
@@ -516,52 +534,45 @@ namespace XmlNotepad
         {
             // make sure directory exists!
             Directory.CreateDirectory(Path.GetDirectoryName(filename));
-            try
+            using (var w = new XmlTextWriter(filename, System.Text.Encoding.UTF8))
             {
-                using (var w = new XmlTextWriter(filename, System.Text.Encoding.UTF8))
+                w.Formatting = Formatting.Indented;
+                w.WriteStartElement("Settings");
+                // create save stability.
+                List<string> keys = new List<string>();
+                foreach (string key in _map.Keys)
                 {
-                    w.Formatting = Formatting.Indented;
-                    w.WriteStartElement("Settings");
-                    // create save stability.
-                    List<string> keys = new List<string>();
-                    foreach (string key in _map.Keys)
+                    keys.Add(key);
+                }
+                keys.Sort();
+                foreach (string key in keys)
+                {
+                    object value = _map[key];
+                    if (value != null)
                     {
-                        keys.Add(key);
-                    }
-                    keys.Sort();
-                    foreach (string key in keys)
-                    {
-                        object value = _map[key];
-                        if (value != null)
+                        if (value is Hashtable ht)
                         {
-                            if (value is Hashtable ht)
-                            {
-                                w.WriteStartElement(key); // container element      
-                                WriteHashTable(w, ht);
-                                w.WriteEndElement();
-                            }
-                            else if (value is Array va)
-                            {
-                                WriteArray(w, key, va);
-                            }
-                            else if (value is IXmlSerializable xs)
-                            {
-                                w.WriteStartElement(key); // container element   
-                                xs.WriteXml(w);
-                                w.WriteEndElement();
-                            }
-                            else
-                            {
-                                string s = ConvertToString(value);
-                                if (s != null) w.WriteElementString(key, s);
-                            }
+                            w.WriteStartElement(key); // container element      
+                            WriteHashTable(w, ht);
+                            w.WriteEndElement();
+                        }
+                        else if (value is Array va)
+                        {
+                            WriteArray(w, key, va);
+                        }
+                        else if (value is IXmlSerializable xs)
+                        {
+                            w.WriteStartElement(key); // container element   
+                            xs.WriteXml(w);
+                            w.WriteEndElement();
+                        }
+                        else
+                        {
+                            string s = ConvertToString(value);
+                            if (s != null) w.WriteElementString(key, s);
                         }
                     }
                 }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
             }
         }
 
@@ -665,6 +676,9 @@ namespace XmlNotepad
             {
                 // make sure file is not still locked by the writer.
                 string text = File.ReadAllText(this._filename);
+
+                // The "File" property is a special signal to the listener that the entire
+                // settings need to be reloaded.
                 OnChanged("File");
             }
             catch (Exception)
@@ -708,6 +722,14 @@ namespace XmlNotepad
             return settingValue is int value ? value : defaultValue;
         }
 
+        public long GetLong(string settingName, long defaultValue = 10000000)
+        {
+            object settingValue = this[settingName];
+            if (settingValue is int i)
+                return i;
+            return settingValue is long value ? value : defaultValue;
+        }
+
         public double GetDouble(string settingName, double defaultValue = 0)
         {
             object settingValue = this[settingName];
@@ -717,6 +739,32 @@ namespace XmlNotepad
                 return (double)v;
             else if (settingValue is int i)
                 return (double)i;
+            return defaultValue;
+        }
+
+        public DateTime GetDateTime(string settingName, DateTime defaultValue)
+        {
+            object settingValue = this[settingName];
+            if (settingValue is DateTime ts)
+            {
+                return ts;
+            }
+            else if (settingName is string && DateTime.TryParse(settingName, out DateTime ts2)) {
+                return ts2;
+            }
+            return defaultValue;
+        }
+
+        public TimeSpan GetTimeSpan(string settingName, TimeSpan defaultValue)
+        {
+            object settingValue = this[settingName];
+            if (settingValue is TimeSpan ts)
+            {
+                return ts;
+            }
+            else if (settingName is string && TimeSpan.TryParse(settingName, out TimeSpan ts2)) {
+                return ts2;
+            }
             return defaultValue;
         }
 
@@ -901,12 +949,16 @@ namespace XmlNotepad
             this["RecentReplaceStrings"] = new string[0];
             this["SearchWindowLocation"] = new Point(0, 0);
             this["SearchSize"] = new Size(0, 0);
+            this["OptionsWindowLocation"] = new Point(0, 0);
+            this["OptionsWindowSize"] = new Size(0, 0);
             this["DynamicHelpVisible"] = false;
             this["FindMode"] = false;
             this["SearchXPath"] = false;
             this["SearchWholeWord"] = false;
             this["SearchRegex"] = false;
             this["SearchMatchCase"] = false;
+            this["SchemaAwareText"] = true;
+            this["SchemaAwareNames"] = "id,name,title,key";
 
             this["LastUpdateCheck"] = DateTime.Now;
             this["UpdateFrequency"] = TimeSpan.FromDays(20);
@@ -919,14 +971,19 @@ namespace XmlNotepad
             this["IndentLevel"] = 2;
             this["IndentChar"] = IndentChar.Space;
             this["NewLineChars"] = Settings.EscapeNewLines("\r\n");
+            this["PreserveWhitespace"] = false;
             this["Language"] = "";
             this["NoByteOrderMark"] = false;
+            this["AttributesOnNewLine"] = false;
 
             this["AppRegistered"] = false;
             this["MaximumLineLength"] = 10000;
             this["MaximumValueLength"] = (int)short.MaxValue;
             this["AutoFormatLongLines"] = false;
-            this["IgnoreDTD"] = false;
+
+            this["IgnoreDTD"] = true;
+            this["DisableIgnoreDtdPrompt"] = false;
+            this["MaximumLineIndex"] = 1000000;
 
             // XSLT options
             this["BrowserVersion"] = "";
@@ -942,17 +999,21 @@ namespace XmlNotepad
             this["XmlDiffIgnoreNamespaces"] = false;
             this["XmlDiffIgnorePrefixes"] = false;
             this["XmlDiffIgnoreXmlDecl"] = false;
-            this["XmlDiffIgnoreDtd"] = false;
+            this["XmlDiffIgnoreDtd"] = true;
+            this["XmlDiffHideIdentical"] = false;
 
             // analytics question has been answered...
             this["AllowAnalytics"] = false;
             this["AnalyticsClientId"] = "";
+            this["PromptOnReload"] = true;
 
             // default text editor
             string sysdir = Environment.SystemDirectory;
             this["TextEditor"] = Path.Combine(sysdir, "notepad.exe");
             this["MouseCalibration"] = new Point[0];
             this["PrimaryScreenSize"] = new Size();
+
+            this._isDirty = false;
         }
     }
 

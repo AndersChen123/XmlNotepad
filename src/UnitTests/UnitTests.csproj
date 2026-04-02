@@ -15,7 +15,7 @@
     </FileUpgradeFlags>
     <UpgradeBackupLocation>
     </UpgradeBackupLocation>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <OldToolsVersion>3.5</OldToolsVersion>
     <TargetFrameworkProfile />
     <LangVersion>8.0</LangVersion>
@@ -79,6 +79,7 @@
     <Content Include="test11.xml" />
     <Content Include="test12.xml" />
     <Content Include="test10.xml" />
+    <Content Include="test13.xml" />
     <Content Include="test2.xml" />
     <Content Include="test3.xml" />
     <Content Include="test4.xml" />
@@ -124,6 +125,9 @@
     </None>
     <None Include="patients.dtd" />
     <None Include="patients.xsd">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="test13.xsd">
       <SubType>Designer</SubType>
     </None>
     <None Include="test2.xsd">

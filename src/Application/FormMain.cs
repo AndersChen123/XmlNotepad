@@ -1,18 +1,18 @@
 //#define WHIDBEY_MENUS
 
 using Microsoft.Xml;
-using Microsoft.XmlDiffPatch;
+using Newtonsoft.Json;
 using Sgml;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Net.Http;
 using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml;
+using XmlNotepad.Properties;
 using SR = XmlNotepad.StringResources;
 using SystemTask = System.Threading.Tasks.Task;
 
@@ -21,7 +21,7 @@ namespace XmlNotepad
     /// <summary>
     /// Summary description for Form1.
     /// </summary>
-    public partial class FormMain : Form, ISite
+    public partial class FormMain : Form, ISite, ITrustService
     {
         private readonly UndoManager _undoManager;
         private Settings _settings = new Settings();
@@ -47,7 +47,8 @@ namespace XmlNotepad
         private SchemaCache _schemaCache;
         private readonly DelayedActions _delayedActions;
         private readonly HelpService _helpService = new HelpService();
-        private readonly System.CodeDom.Compiler.TempFileCollection _tempFiles = new System.CodeDom.Compiler.TempFileCollection();
+        private XmlDiffWrapper _diffWrapper = new XmlDiffWrapper();
+        private readonly IDictionary<Uri, bool> _trusted = new Dictionary<Uri, bool>();
 
         private XmlCache _model;
         private SettingsLocation _loc;
@@ -89,6 +90,9 @@ namespace XmlNotepad
             //
             InitializeComponent();
 
+#if DEBUG
+            AddHiddenMenuItems();
+#endif
             // Separated out so we can have virtual CreateTreeView without causing WinForms designer to barf.
             InitializeTreeView();
 
@@ -169,6 +173,7 @@ namespace XmlNotepad
             this.ContextMenuStrip = this.contextMenu1;
             New();
 
+            this.xsltViewer.Visible = false;
             if (!testing)
             {
                 _ = AsyncSetup();
@@ -177,13 +182,19 @@ namespace XmlNotepad
 
         private void DispatchAction(Action action)
         {
-            if (!this.Disposing)
+            if (!this.Disposing && !this.closing)
             {
                 ISynchronizeInvoke si = (ISynchronizeInvoke)this;
                 if (si.InvokeRequired)
                 {
                     // get on the right thread.
-                    si.Invoke(action, null);
+                    try
+                    {
+                        si.Invoke(action, null);
+                    } 
+                    catch (Exception)
+                    {
+                    }
                     return;
                 }
                 else
@@ -205,43 +216,6 @@ namespace XmlNotepad
 
             // install Xml notepad as an available editor for .xml files.
             FileAssociation.AddXmlProgids(Application.ExecutablePath);
-
-            await CheckNetwork();
-        }
-
-        private async System.Threading.Tasks.Task CheckNetwork()
-        {
-            if (System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable())
-            {
-                using (System.Net.WebClient client = new System.Net.WebClient())
-                {
-                    client.UseDefaultCredentials = true;
-                    try
-                    {
-                        string html = await client.DownloadStringTaskAsync(this._helpService.HelpBaseUri);
-                        if (html.Contains("XML Notepad"))
-                        {
-                            this.BeginInvoke(new Action(FoundOnlineHelp));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine("online help is not reachable " + ex.Message);
-                    }
-                }
-            }
-
-            if (!Directory.Exists(Path.Combine(Application.StartupPath, "Help")))
-            {
-                // Must use online help in this case since we have no offline help
-                this._helpService.OnlineHelpAvailable = true;
-            }
-        }
-
-        private void FoundOnlineHelp()
-        {
-            this._helpService.OnlineHelpAvailable = true;
-            InitializeHelp(this.helpProvider1);
         }
 
         protected virtual void SetDefaultSettings()
@@ -332,6 +306,76 @@ namespace XmlNotepad
             this.tabPageTreeView.Controls.Add(this.xmlTreeView1);
             this.tabPageTreeView.Controls.SetChildIndex(this.xmlTreeView1, 0);
 
+        }
+
+        private void AddHiddenMenuItems()
+        {
+            var hidden = new HiddenMenuItems();
+            hidden.Add(newToolStripMenuItem, true);
+            hidden.Add(openToolStripMenuItem, true);
+            hidden.Add(openSettingsToolStripMenuItem, true);
+            hidden.Add(reloadToolStripMenuItem, true);
+            hidden.Add(saveToolStripMenuItem, true);
+            hidden.Add(saveAsToolStripMenuItem, true);
+            hidden.Add(exitToolStripMenuItem, true);
+            hidden.Add(undoToolStripMenuItem);
+            hidden.Add(redoToolStripMenuItem);
+            hidden.Add(cutToolStripMenuItem);
+            hidden.Add(copyToolStripMenuItem);
+            hidden.Add(pasteToolStripMenuItem);
+            hidden.Add(deleteToolStripMenuItem);
+            hidden.Add(repeatToolStripMenuItem);
+            hidden.Add(insertToolStripMenuItem);
+            hidden.Add(duplicateToolStripMenuItem);
+            hidden.Add(upToolStripMenuItem);
+            hidden.Add(downToolStripMenuItem);
+            hidden.Add(leftToolStripMenuItem);
+            hidden.Add(rightToolStripMenuItem);
+            hidden.Add(findToolStripMenuItem, true);
+            hidden.Add(expandAllToolStripMenuItem);
+            hidden.Add(collapseAllToolStripMenuItem);
+            hidden.Add(statusBarToolStripMenuItem);
+            hidden.Add(sourceToolStripMenuItem);
+            hidden.Add(optionsToolStripMenuItem);
+            hidden.Add(commentToolStripMenuItem);
+            hidden.Add(contentsToolStripMenuItem);
+            hidden.Add(aboutXMLNotepadToolStripMenuItem, true);
+            hidden.Add(elementAfterToolStripMenuItem);
+            hidden.Add(elementBeforeToolStripMenuItem);
+            hidden.Add(elementChildToolStripMenuItem);
+            hidden.Add(attributeBeforeToolStripMenuItem);
+            hidden.Add(attributeAfterToolStripMenuItem);
+            hidden.Add(attributeChildToolStripMenuItem);
+            hidden.Add(textBeforeToolStripMenuItem);
+            hidden.Add(textAfterToolStripMenuItem);
+            hidden.Add(textChildToolStripMenuItem);
+            hidden.Add(commentBeforeToolStripMenuItem);
+            hidden.Add(commentAfterToolStripMenuItem);
+            hidden.Add(commentChildToolStripMenuItem);
+            hidden.Add(cdataBeforeToolStripMenuItem);
+            hidden.Add(cdataAfterToolStripMenuItem);
+            hidden.Add(cdataChildToolStripMenuItem);
+            hidden.Add(PIBeforeToolStripMenuItem);
+            hidden.Add(PIAfterToolStripMenuItem);
+            hidden.Add(PIChildToolStripMenuItem);
+            hidden.Add(newWindowToolStripMenuItem);
+            hidden.Add(schemasToolStripMenuItem, true);
+            hidden.Add(nextErrorToolStripMenuItem);
+            hidden.Add(compareXMLFilesToolStripMenuItem);
+            hidden.Add(gotoDefinitionToolStripMenuItem);
+            hidden.Add(expandXIncludesToolStripMenuItem);
+            hidden.Add(exportErrorsToolStripMenuItem);
+            hidden.Add(toolStripMenuItemUpdate);
+            hidden.Add(changeToElementToolStripMenuItem1);
+            hidden.Add(changeToAttributeToolStripMenuItem1);
+            hidden.Add(changeToTextToolStripMenuItem1);
+            hidden.Add(changeToCDATAToolStripMenuItem1);
+            hidden.Add(changeToCommentToolStripMenuItem1);
+            hidden.Add(changeToProcessingInstructionToolStripMenuItem);
+            hidden.Add(incrementalSearchToolStripMenuItem);
+            hidden.Add(renameToolStripMenuItem1);
+            hidden.Add(replaceToolStripMenuItem);
+            this.Controls.Add(hidden);
         }
 
         protected virtual void InitializeHelp(HelpProvider hp)
@@ -430,8 +474,6 @@ namespace XmlNotepad
             this._updater.Title = this.Caption;
             this._updater.UpdateAvailable += new EventHandler<UpdateStatus>(OnUpdateAvailable);
 
-            this.xmlTreeView1.OnLoaded();
-            EnsureWindowBounds();
             base.OnLoad(e);
         }
 
@@ -540,15 +582,47 @@ namespace XmlNotepad
                     return;
                 }
             }
+            this.closing = true;
             this._delayedActions.Close();
-            SaveConfig();
+
+            SaveSettings(e);
+            
             base.OnClosing(e);
+        }
+
+        private void SaveSettings(CancelEventArgs e)
+        {
+            try
+            {
+                SaveConfig();
+            }
+            catch (Exception ex)
+            {
+                if (this._settings.DiscardChanges)
+                {
+                    // prompt the user only once per process.
+                }
+                else
+                {
+                    var rc = MessageBox.Show(this, "Error saving " + this._settings.FileName + "\r\n\r\n" + 
+                        ex.Message + "\r\n\r\nWould you like to discard your changes to the settings?",
+                        "Error saving settings", MessageBoxButtons.YesNo, MessageBoxIcon.Error);
+                    if (rc == DialogResult.No)
+                    {
+                        e.Cancel = true;
+                    }
+                    else
+                    {
+                        this._settings.DiscardChanges = true;
+                    }
+                }
+            }
         }
 
         protected override void OnClosed(EventArgs e)
         {
             this.xmlTreeView1.Close();
-            CleanupTempFiles();
+            this._diffWrapper.CleanupTempFiles();
             if (this._updater != null)
             {
                 this._updater.Dispose();
@@ -602,6 +676,7 @@ namespace XmlNotepad
         /// </summary>
         protected override void Dispose(bool disposing)
         {
+            this.closing = true;
             if (disposing)
             {
                 if (components != null)
@@ -771,11 +846,15 @@ namespace XmlNotepad
         {
             if (e.TabPage == this.tabPageHtmlView)
             {
+                this.helpProvider1.HelpNamespace = this._helpService.XsltHelp;
                 this.CheckWebViewVersion();
+                this.xsltViewer.Visible = true;
                 this.DisplayXsltResults();
             }
             else
             {
+                this.helpProvider1.HelpNamespace = this._helpService.DefaultHelp;
+                this.xsltViewer.Visible = false;
                 this.xsltViewer.OnClosed(); // good time to cleanup temp files.
             }
         }
@@ -910,6 +989,10 @@ namespace XmlNotepad
             {
                 return this._delayedActions;
             }
+            else if (service == typeof(ITrustService))
+            {
+                return this as ITrustService;
+            }
             return base.GetService(service);
         }
 
@@ -966,7 +1049,35 @@ namespace XmlNotepad
             this.toolStripStatusLabel1.Text = "";
         }
 
-        public virtual async System.Threading.Tasks.Task Open(string filename, bool recentFile = false)
+        public virtual async System.Threading.Tasks.Task Reload(string filename)
+        {
+            // save current selection position
+            XmlTreeNode selection = (XmlTreeNode)this.xmlTreeView1.SelectedNode;
+            XmlNamespaceManager nsmgr = null;
+            string xpath = null;
+            if (selection != null && selection.Node != null)
+            {
+                var xnode = selection.Node;
+                nsmgr = XmlHelpers.GetNamespaceScope(xnode);
+                xpath = XmlHelpers.GetXPathLocation(xnode, nsmgr);
+            }
+
+            this.Model.Clear(); // in case the updated file is invalid!
+            await this.Open(filename, false, true);
+
+            if (this._model.Document != null && !string.IsNullOrEmpty(xpath))
+            {
+                var matchingNode = this._model.Document.SelectSingleNode(xpath, nsmgr);
+                if (matchingNode != null)
+                {
+                    var treeNode = this.xmlTreeView1.FindNode(matchingNode);
+                    TreeView.EnsureVisible(treeNode);
+                    this.xmlTreeView1.SelectedNode = treeNode;
+                }
+            }
+        }
+
+        public virtual async System.Threading.Tasks.Task Open(string filename, bool recentFile = false, bool reloading = false)
         {
             try
             {
@@ -975,13 +1086,16 @@ namespace XmlNotepad
                 switch (entity.MimeType)
                 {
                     case "text/csv":
-                        ImportCsv(entity);
+                        await ImportCsv(entity, reloading);
+                        break;
+                    case "application/json":
+                        await ImportJson(entity, reloading);
                         break;
                     case "text/html":
-                        ImportHtml(entity);
+                        await ImportHtml(entity, reloading);
                         break;
                     default:
-                        InternalOpen(entity);
+                        InternalOpen(entity, reloading);
                         break;
                 }
             }
@@ -1012,7 +1126,8 @@ namespace XmlNotepad
                         this._recentFiles.RemoveRecentFile(uri);
                     }
                 }
-                else if (MessageBox.Show(this,
+                
+                if (prompt && MessageBox.Show(this,
                     string.Format(SR.LoadErrorPrompt, filename, e.Message),
                     SR.LoadErrorCaption, MessageBoxButtons.YesNo, MessageBoxIcon.Error) == DialogResult.Yes)
                 {
@@ -1021,39 +1136,43 @@ namespace XmlNotepad
             }
         }
 
-        private void ImportHtml(FileEntity entity)
+        private async System.Threading.Tasks.Task ImportHtml(FileEntity entity, bool reloading)
         {
-            _includesExpanded = false;
+            var html = await entity.ReadText();
             DateTime start = DateTime.Now;
-
             using (var reader = new SgmlReader())
             {
                 reader.DocType = "HTML";
                 reader.CaseFolding = CaseFolding.ToLower;
-                reader.InputStream = new StreamReader(entity.Stream, entity.Encoding);
+                reader.InputStream = new StringReader(html);
                 reader.WhitespaceHandling = WhitespaceHandling.Significant;
                 this._model.Load(reader, entity.Uri.OriginalString);
-            }
-
-            DateTime finish = DateTime.Now;
-            TimeSpan diff = finish - start;
-            string s = diff.ToString();
-            this._settings["FileName"] = entity.Uri.OriginalString;
-            this.UpdateCaption();
-            ShowStatus(string.Format(SR.LoadedTimeStatus, s));
-            EnableFileMenu();
-            this._recentFiles.AddRecentFile(entity.Uri);
-            SelectTreeView();
+                FinishLoad(entity, start, reloading);
+            }            
         }
 
-        private void ImportCsv(FileEntity entity)
+        private async System.Threading.Tasks.Task ImportJson(FileEntity entity, bool reloading)
         {
+            DateTime start = DateTime.Now;
+
+            var json = await entity.ReadText();
+            XmlDocument doc = JsonConvert.DeserializeXmlNode(json, "root");
+
+            this._model.Load(new XmlNodeReader(doc), entity.LocalPath);
+
+            FinishLoad(entity, start, reloading);
+        }
+
+        private async System.Threading.Tasks.Task ImportCsv(FileEntity entity, bool reloading)
+        {
+            var csvText = await entity.ReadText();
+
             FormCsvImport importForm = new XmlNotepad.FormCsvImport();
             importForm.File = entity;
             if (importForm.ShowDialog() == DialogResult.OK)
             {
                 // then import it for real...
-                using (StreamReader reader = new StreamReader(entity.Stream, entity.Encoding))
+                using (StringReader reader = new StringReader(csvText))
                 {
                     string xmlFile = Path.Combine(Path.GetDirectoryName(entity.LocalPath),
                         Path.GetFileNameWithoutExtension(entity.LocalPath) + ".xml");
@@ -1062,39 +1181,39 @@ namespace XmlNotepad
                     csv.Delimiter = importForm.Deliminter;
                     csv.FirstRowHasColumnNames = importForm.FirstRowIsHeader;
 
-                    _includesExpanded = false;
                     DateTime start = DateTime.Now;
                     this._model.Load(csv, xmlFile);
-                    DateTime finish = DateTime.Now;
-                    TimeSpan diff = finish - start;
-                    string s = diff.ToString();
-                    this._settings["FileName"] = entity.Uri.OriginalString;
-                    this.UpdateCaption();
-                    ShowStatus(string.Format(SR.LoadedTimeStatus, s));
-                    EnableFileMenu();
-                    this._recentFiles.AddRecentFile(entity.Uri);
-                    SelectTreeView();
+
+                    FinishLoad(entity, start, reloading);
                 }
 
                 this._analytics.RecordCsvImport();
             }
         }
 
-        private void InternalOpen(FileEntity entity)
+        private void FinishLoad(FileEntity entity, DateTime startLoadTime, bool reloading)
         {
-            entity.Close();
-            _includesExpanded = false;
-            DateTime start = DateTime.Now;
-            this._model.Load(entity.Uri.OriginalString);
             DateTime finish = DateTime.Now;
-            TimeSpan diff = finish - start;
+            TimeSpan diff = finish - startLoadTime;
+            _includesExpanded = false;
             string s = diff.ToString();
             this._settings["FileName"] = entity.Uri.OriginalString;
             this.UpdateCaption();
             ShowStatus(string.Format(SR.LoadedTimeStatus, s));
             EnableFileMenu();
             this._recentFiles.AddRecentFile(entity.Uri);
-            SelectTreeView();            
+            if (!reloading)
+            {
+                SelectTreeView();
+            }
+        }
+
+        private void InternalOpen(FileEntity entity, bool reloading)
+        {
+            entity.Close();
+            DateTime start = DateTime.Now;
+            this._model.Load(entity.Uri.OriginalString);
+            FinishLoad(entity, start, reloading);
         }
 
         bool CheckXIncludes()
@@ -1153,8 +1272,12 @@ namespace XmlNotepad
                     this.xmlTreeView1.BeginSave();
                     if (CheckReadOnly(fname))
                     {
+                        var start = DateTime.Now;
                         _model.Save();
-                        ShowStatus(SR.SavedStatus);
+                        var finish = DateTime.Now;
+                        var diff = finish - start;
+                        var s = diff.ToString();
+                        ShowStatus(string.Format(SR.SavedStatus, s));
                     }
                 }
                 catch (Exception e)
@@ -1288,7 +1411,7 @@ namespace XmlNotepad
                 {
                     this.WindowState = FormWindowState.Normal;
                 }
-                SelectTreeView();
+                this.xmlTreeView1.Commit();
                 if (!string.IsNullOrEmpty(this._model.NewName))
                 {
                     if (MessageBox.Show(this, SR.FileRenamedDiskPrompt, SR.FileChagedOnDiskCaption, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
@@ -1299,11 +1422,19 @@ namespace XmlNotepad
 
                     }
                 }
-                else if (MessageBox.Show(this, SR.FileChangedOnDiskPrompt, SR.FileChagedOnDiskCaption, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                else if (this._model.Dirty)
+                {
+                    if (MessageBox.Show(this, SR.DirtyWhileFileChangedOnDiskPrompt, SR.FileChagedOnDiskCaption, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                    {
+                        string location = this._model.Location.LocalPath;
+                        await this.Reload(location);
+                    }
+                }
+                else if (!this._settings.GetBoolean("PromptOnReload") ||
+                    MessageBox.Show(this, SR.FileChangedOnDiskPrompt, SR.FileChagedOnDiskCaption, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                 {
                     string location = this._model.Location.LocalPath;
-                    this._model.Clear();
-                    await this.Open(location);
+                    await this.Reload(location);
                 }
             }
             finally
@@ -1368,6 +1499,10 @@ namespace XmlNotepad
                 {
                     this._settings["UpdateLocation"] = XmlNotepad.Settings.DefaultUpdateLocation;
                 }
+
+                // apply newly loaded settings to our window layout.
+                this.xmlTreeView1.OnLoaded();
+                EnsureWindowBounds();
             }
             finally
             {
@@ -1446,8 +1581,12 @@ namespace XmlNotepad
             this._settings["TreeViewSize"] = this.xmlTreeView1.ResizerPosition;
             this._settings["RecentFiles"] = this._recentFiles.ToArray();
             this._settings["RecentXsltFiles"] = this._recentXsltFiles.ToArray();
-            var path = this._settings.FileName;
-            this._settings.Save(path);
+            if (this.Settings.IsDirty)
+            {
+                var path = this._settings.FileName;
+                Debug.WriteLine("Saving settings: " + path);
+                this._settings.Save(path);
+            }
         }
 
         #region  ISite implementation
@@ -1481,18 +1620,36 @@ namespace XmlNotepad
 
         void OnModelChanged(object sender, ModelChangedEventArgs e)
         {
-            if (e.ModelChangeType == ModelChangeType.Reloaded)
+            switch (e.ModelChangeType)
             {
-                this._undoManager.Clear();
-                this._taskList.Clear();
-            }
-            if (e.ModelChangeType == ModelChangeType.BeginBatchUpdate)
-            {
-                _batch++;
-            }
-            else if (e.ModelChangeType == ModelChangeType.EndBatchUpdate)
-            {
-                _batch--;
+                case ModelChangeType.Reloaded:
+                    this._undoManager.Clear();
+                    this._taskList.Clear();
+                    break;
+                case ModelChangeType.Saved:
+                    break;
+                case ModelChangeType.NodeChanged:
+                    break;
+                case ModelChangeType.NodeInserted:
+                    break;
+                case ModelChangeType.NodeRemoved:
+                    break;
+                case ModelChangeType.NamespaceChanged:
+                    break;
+                case ModelChangeType.BeginBatchUpdate:
+                    _batch++;
+                    break;
+                case ModelChangeType.EndBatchUpdate:
+                    _batch--;
+                    break;
+                case ModelChangeType.Cleared:
+                    // Have to skip validation pass in this case!
+                    this._undoManager.Clear();
+                    this._taskList.Clear();
+                    UpdateCaption();
+                    return;
+                default:
+                    break;
             }
             if (_batch == 0) OnModelChanged();
         }
@@ -1513,16 +1670,18 @@ namespace XmlNotepad
             switch (name)
             {
                 case "File":
-                    // load the new settiongs but don't move the window or anything if another instances of xmlnotepad.exe changed
+                    // load the new settings but don't move the window or anything if another instances of xmlnotepad.exe changed
                     // the settings.xml file.
                     if (!this._loading)
                     {
                         try
                         {
+                            // _settinsReloadLock makes sure that when you close one xmlnotepad window
+                            // this window does not get resized.
                             _settinsReloadLock = true;
                             this.LoadConfig();
                         }
-                        finally
+                        catch
                         {
                             _settinsReloadLock = false;
                         }
@@ -1597,6 +1756,41 @@ namespace XmlNotepad
                 case "DisableUpdateUI":
                     this.checkUpdatesToolStripMenuItem.Visible = !this._settings.GetBoolean("DisableUpdateUI", false);
                     break;
+
+                case "AllowAnalytics":
+                    if (this._analytics != null)
+                    {
+                        this._analytics.SetEnabled(this._settings.GetBoolean("AllowAnalytics", false));
+                    }
+                    break;
+                case "Theme":
+                    OnThemeChanged();
+                    break;
+            }
+
+            this._delayedActions.StartDelayedAction("DelaySaveSettings", 
+                () => SaveSettings(new CancelEventArgs()), 
+                TimeSpan.FromSeconds(1));
+        }
+
+        private void OnThemeChanged()
+        {
+            if ((ColorTheme)this._settings["Theme"] == ColorTheme.Light)
+            {
+                ThemeAllControls(this, false);
+            }
+            else
+            {
+                ThemeAllControls(this, true);
+            }
+        }
+
+        private void ThemeAllControls(Control parent, bool darkMode)
+        {
+            Win32Helpers.UseImmersiveDarkMode(this.Handle, darkMode);
+            foreach (Control control in parent.Controls)
+            {
+                ThemeAllControls(control, darkMode);
             }
         }
 
@@ -1640,7 +1834,7 @@ namespace XmlNotepad
             // display documentation
             if (null == xmlTreeView1.SelectedNode)
             {
-                this._dynamicHelpViewer.DisplayXsltResults(new XmlDocument(), null);
+                _ = this._dynamicHelpViewer.DisplayXsltResults(new XmlDocument(), null);
                 return;
             }
             XmlDocument xmlDoc = xmlTreeView1.SelectedNode.GetDocumentation();
@@ -1658,7 +1852,7 @@ namespace XmlNotepad
                         xmlDoc.AppendChild(xmlDoc.CreateElement("nothing"));
                     }
                 }
-                this._dynamicHelpViewer.DisplayXsltResults(xmlDoc, null);
+                _ = this._dynamicHelpViewer.DisplayXsltResults(xmlDoc, null);
             }
             else if (_helpAvailableHint && xmlDoc != null)
             {
@@ -1674,7 +1868,6 @@ namespace XmlNotepad
 
         protected virtual void UpdateMenuState()
         {
-
             XmlTreeNode node = this.xmlTreeView1.SelectedNode as XmlTreeNode;
             XmlNode xnode = (node != null) ? node.Node : null;
             bool hasSelection = node != null;
@@ -1682,7 +1875,7 @@ namespace XmlNotepad
 
             this.toolStripButtonCut.Enabled = this.cutToolStripMenuItem.Enabled = this.ctxcutToolStripMenuItem.Enabled = hasXmlNode;
             this.toolStripButtonDelete.Enabled = this.deleteToolStripMenuItem.Enabled = hasSelection;
-            this.toolStripButtonCopy.Enabled = this.copyToolStripMenuItem.Enabled = this.ctxMenuItemCopy.Enabled = hasXmlNode;
+            this.toolStripButtonCopy.Enabled = this.copyToolStripMenuItem.Enabled = this.ctxMenuItemCopy.Enabled = this.copyXPathToolStripMenuItem.Enabled = this.ctxMenuItemCopyXPath.Enabled = hasXmlNode;
             this.duplicateToolStripMenuItem.Enabled = hasXmlNode;
 
             this.changeToAttributeContextMenuItem.Enabled = this.changeToAttributeToolStripMenuItem1.Enabled = hasSelection;
@@ -1737,17 +1930,22 @@ namespace XmlNotepad
                     path = System.IO.Path.GetTempFileName();
                     _model.SaveCopy(path);
                 }
-                string notepad = (string)this.Settings["TextEditor"];
-                if (string.IsNullOrEmpty(notepad) || !File.Exists(notepad))
-                {
-                    string sysdir = Environment.SystemDirectory;
-                    notepad = Path.Combine(sysdir, "notepad.exe");
-                }
-                if (File.Exists(notepad))
-                {
-                    ProcessStartInfo pi = new ProcessStartInfo(notepad, "\"" + path + "\"");
-                    Process.Start(pi);
-                }
+                OpenTextFile(path);
+            }
+        }
+
+        protected void OpenTextFile(string path)
+        {
+            string notepad = (string)this.Settings["TextEditor"];
+            if (string.IsNullOrEmpty(notepad) || !File.Exists(notepad))
+            {
+                string sysdir = Environment.SystemDirectory;
+                notepad = Path.Combine(sysdir, "notepad.exe");
+            }
+            if (File.Exists(notepad))
+            {
+                ProcessStartInfo pi = new ProcessStartInfo(notepad, "\"" + path + "\"");
+                Process.Start(pi);
             }
         }
 
@@ -2253,6 +2451,16 @@ namespace XmlNotepad
             this.xmlTreeView1.Copy();
         }
 
+        private void copyXPathToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            this.xmlTreeView1.CopyXPath();
+        }
+
+        private void ctxMenuItemCopyXPath_Click(object sender, EventArgs e)
+        {
+            this.xmlTreeView1.CopyXPath();
+        }
+
         private void toolStripButtonPaste_Click(object sender, EventArgs e)
         {
             SelectTreeView();
@@ -2416,19 +2624,6 @@ namespace XmlNotepad
                 this.xmlTreeView1.InsertNode(InsertPosition.Child, XmlNodeType.ProcessingInstruction);
         }
 
-        void Launch(string exeFileName, string args)
-        {
-            ProcessStartInfo info = new ProcessStartInfo();
-            info.FileName = exeFileName;
-            info.Arguments = "/offset " + args;
-            Process p = new Process();
-            p.StartInfo = info;
-            if (!p.Start())
-            {
-                MessageBox.Show(this, string.Format(SR.ErrorCreatingProcessPrompt, exeFileName), SR.LaunchErrorPrompt, MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
         private void newWindowToolStripMenuItem_Click(object sender, EventArgs e)
         {
             this.SaveIfDirty(true);
@@ -2488,150 +2683,13 @@ namespace XmlNotepad
                 }
             }
         }
-
-        string GetEmbeddedString(string name)
+        private void DoCompare(string otherXmlFile)
         {
-            using (Stream stream = typeof(XmlNotepad.FormMain).Assembly.GetManifestResourceStream(name))
-            {
-                if (stream == null)
-                {
-                    throw new Exception(string.Format("You have a build problem: resource '{0} not found", name));
-                }
-                using (StreamReader sr = new StreamReader(stream))
-                {
-                    return sr.ReadToEnd();
-                }
-            }
-        }
-
-        /// <summary>
-        /// The html header used by XmlNotepad.
-        /// </summary>
-        /// <param name="sourceXmlFile">name of baseline xml data</param>
-        /// <param name="changedXmlFile">name of file being compared</param>
-        /// <param name="resultHtml">Output file</param>
-        private void SideBySideXmlNotepadHeader(
-            string sourceXmlFile,
-            string changedXmlFile,
-            TextWriter resultHtml)
-        {
-
-            // this initializes the html
-            resultHtml.WriteLine("<html><head>");
-            resultHtml.WriteLine("<style TYPE='text/css'>");
-            resultHtml.WriteLine(GetEmbeddedString("XmlNotepad.Resources.XmlReportStyles.css"));
-            resultHtml.WriteLine("</style>");
-            resultHtml.WriteLine("</head>");
-            resultHtml.WriteLine(GetEmbeddedString("XmlNotepad.Resources.XmlDiffHeader.html"));
-
-            resultHtml.WriteLine(string.Format(SR.XmlDiffBody,
-                    System.IO.Path.GetDirectoryName(sourceXmlFile),
-                    sourceXmlFile,
-                    System.IO.Path.GetDirectoryName(changedXmlFile),
-                    changedXmlFile
-            ));
-
-        }
-
-        void CleanupTempFiles()
-        {
-            try
-            {
-                this._tempFiles.Delete();
-            }
-            catch
-            {
-            }
-        }
-
-        private void DoCompare(string changed)
-        {
-            CleanupTempFiles();
-
-            // todo: add UI for setting XmlDiffOptions.
-
-            XmlDiffOptions options = this._settings.GetXmlDiffOptions();
-
             this.xmlTreeView1.Commit();
             this.SaveIfDirty(false);
-            string filename = this._model.FileName;
-
-            // load file from disk, as saved doc can be slightly different
-            // (e.g. it might now have an XML declaration).  This ensures we
-            // are diffing the exact same doc as we see loaded below on the
-            // diffView.Load call.
-            XmlDocument original = new XmlDocument();
-            XmlReaderSettings settings = _model.GetReaderSettings();
-            using (XmlReader reader = XmlReader.Create(filename, settings))
-            {
-                original.Load(reader);
-            }
-
-            XmlDocument doc = new XmlDocument();
-            settings = _model.GetReaderSettings();
-            using (XmlReader reader = XmlReader.Create(changed, settings))
-            {
-                doc.Load(reader);
-            }
-
-            //output diff file.
-            string diffFile = Path.Combine(Path.GetTempPath(),
-                Path.GetFileNameWithoutExtension(Path.GetRandomFileName()) + ".xml");
-            this._tempFiles.AddFile(diffFile, false);
-
-            bool isEqual = false;
-            XmlTextWriter diffWriter = new XmlTextWriter(diffFile, Encoding.UTF8);
-            diffWriter.Formatting = Formatting.Indented;
-            using (diffWriter)
-            {
-                XmlDiff diff = new XmlDiff(options);
-                isEqual = diff.Compare(original, doc, diffWriter);
-            }
-
-            if (isEqual)
-            {
-                //This means the files were identical for given options.
-                MessageBox.Show(this, SR.FilesAreIdenticalPrompt, SR.FilesAreIdenticalCaption,
-                    MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                return;
-            }
-
-            string tempFile = Path.Combine(Path.GetTempPath(),
-                Path.GetFileNameWithoutExtension(Path.GetRandomFileName()) + ".htm");
-            _tempFiles.AddFile(tempFile, false);
-
-            using (XmlReader diffGram = XmlReader.Create(diffFile, settings))
-            {
-                XmlDiffView diffView = new XmlDiffView();
-                using (var reader = new XmlTextReader(filename))
-                {
-                    diffView.Load(reader, diffGram);
-                    using (TextWriter htmlWriter = new StreamWriter(tempFile, false, Encoding.UTF8))
-                    {
-                        SideBySideXmlNotepadHeader(this._model.FileName, changed, htmlWriter);
-                        diffView.GetHtml(htmlWriter);
-                        htmlWriter.WriteLine("</body></html>");
-                    }
-                }
-            }
-
-            WebBrowser.OpenUrl(this.Handle, tempFile);
-        }
-
-        string ApplicationPath
-        {
-            get
-            {
-                string path = Application.ExecutablePath;
-                if (path.EndsWith("vstesthost.exe", StringComparison.CurrentCultureIgnoreCase))
-                {
-                    // must be running UnitTests
-                    Uri baseUri = new Uri(this.GetType().Assembly.Location);
-                    Uri resolved = new Uri(baseUri, @"..\..\..\Application\bin\debug\XmlNotepad.exe");
-                    path = resolved.LocalPath;
-                }
-                return path;
-            }
+            var options = this._settings.GetXmlDiffOptions();
+            bool omitIdentical = this._settings.GetBoolean("XmlDiffHideIdentical");
+            this._diffWrapper.DoCompare(this, this._model, otherXmlFile, options, omitIdentical);
         }
 
         public virtual void OpenNewWindow(string path)
@@ -2668,7 +2726,7 @@ namespace XmlNotepad
                     }
                 }
             }
-            Launch(this.ApplicationPath, "\"" + path + "\"");
+            Program.Launch(path);
         }
 
         private void GotoDefinition()
@@ -2836,6 +2894,9 @@ namespace XmlNotepad
         {
             if (this._model == null || string.IsNullOrEmpty(this._model.FileName))
             {
+                var message = StringResources.NoFileLoaded;
+                var caption = StringResources.NoStats;
+                MessageBox.Show(this, message, caption, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             this.xmlTreeView1.Commit();
@@ -2877,6 +2938,8 @@ namespace XmlNotepad
             pi.UseShellExecute = true;
             pi.WorkingDirectory = path;
             Process.Start(pi);
+
+            this._analytics.RecordStatistics();
         }
 
         private string GetWritableApplicationPath()
@@ -2990,6 +3053,11 @@ namespace XmlNotepad
             }
         }
 
+        private void openXmlDiffStylesToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            this.OpenTextFile(this._diffWrapper.GetOrCreateLocalStyles());
+        }
+        
         private void gCCollectToolStripMenuItem_Click(object sender, EventArgs e)
         {
             GC.Collect();
@@ -3031,6 +3099,7 @@ namespace XmlNotepad
         TextBox xPos;
         TextBox yPos;
         TextBox status;
+        private bool closing;
 
         internal void ShowMousePosition()
         {
@@ -3081,7 +3150,32 @@ namespace XmlNotepad
             xPos.Text = e.X.ToString();
             yPos.Text = e.Y.ToString();
         }
+
+        public async System.Threading.Tasks.Task<bool> PromptUser(Uri location)
+        {
+            bool result = false;
+            
+            this.Invoke(new Action(() =>
+            {
+                result = MessageBox.Show(this, SR.XslScriptCodePrompt, SR.XslScriptCodeCaption,
+                           MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) == DialogResult.Yes;
+                _trusted[location] = result;                 
+            }
+            ));
+            await System.Threading.Tasks.Task.CompletedTask;
+            return result;
+        }
+
+        public bool? CanTrustUrl(Uri location)
+        {
+            if (_trusted.ContainsKey(location))
+            {
+                return _trusted[location];
+            }
+            return null;
+        }
         #endregion
+
     }
 
 }

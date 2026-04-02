@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Xml;
+using System.Xml.Linq;
 using System.Xml.Schema;
 using System.Xml.XPath;
 
@@ -56,6 +57,8 @@ namespace XmlNotepad
         public string FileName => this._fileName;
         public string NewName => this._renamed;
 
+        public Checker Checker => this._checker;
+
         public bool IsFile
         {
             get
@@ -77,6 +80,8 @@ namespace XmlNotepad
         /// File path to (optionally user-specified) to use for xslt output.
         /// </summary>
         public string XsltDefaultOutput { get; set; }
+
+        public HashSet<string> AllNamespaces => this._loader.AllNamespaces;
 
         public bool Dirty => this._dirty;
 
@@ -169,6 +174,16 @@ namespace XmlNotepad
         }
 
         /// <summary>
+        /// Load the cache from an existing document instance.
+        /// </summary>
+        /// <param name="doc"></param>
+        public void Load(XmlDocument doc)
+        {
+            this.Document = doc;
+            FireModelChanged(ModelChangeType.Reloaded, doc);
+        }
+
+        /// <summary>
         /// Loads an instance of xml.
         /// Load updated to handle validation when instance doc refers to schema.
         /// </summary>
@@ -184,9 +199,8 @@ namespace XmlNotepad
                 uri = resolved;
             }
 
-            XmlReaderSettings settings = GetReaderSettings();
-            settings.ValidationEventHandler += new ValidationEventHandler(OnValidationEvent);
-            using (XmlReader reader = XmlReader.Create(file, settings))
+            var handler = new ValidationEventHandler(OnValidationEvent);
+            using (XmlReader reader = XmlHelpers.ReadXml(file, null, handler))
             {
                 this.Load(reader, file);
             }
@@ -209,9 +223,10 @@ namespace XmlNotepad
             this._fileName = uri.IsFile ? uri.LocalPath : fileName;
             this._lastModified = this.LastModTime;
             this._dirty = false;
-            StartFileWatch();
 
             this.Document = _loader.Load(reader);
+
+            StartFileWatch();
             this.XsltFileName = this._loader.XsltFileName;
             this.XsltDefaultOutput = this._loader.XsltDefaultOutput;
 
@@ -221,10 +236,9 @@ namespace XmlNotepad
 
         public XmlReaderSettings GetReaderSettings()
         {
-            XmlReaderSettings settings = new XmlReaderSettings();
-            settings.DtdProcessing = this._settings.GetBoolean("IgnoreDTD") ? DtdProcessing.Ignore : DtdProcessing.Parse;
+            XmlReaderSettings settings = XmlHelpers.CreateXmlSettings(Settings.Instance.Resolver);
             settings.CheckCharacters = false;
-            settings.XmlResolver = Settings.Instance.Resolver;
+            settings.IgnoreWhitespace = false;
             return settings;
         }
 
@@ -233,9 +247,7 @@ namespace XmlNotepad
             if (this.Document != null)
             {
                 this._dirty = true;
-                XmlReaderSettings s = new XmlReaderSettings();
-                s.DtdProcessing = this._settings.GetBoolean("IgnoreDTD") ? DtdProcessing.Ignore : DtdProcessing.Parse;
-                s.XmlResolver = Settings.Instance.Resolver;
+                XmlReaderSettings s = XmlHelpers.CreateXmlSettings(Settings.Instance.Resolver);
                 using (XmlReader r = XmlIncludeReader.CreateIncludeReader(this.Document, s, this.FileName))
                 {
                     this.Document = _loader.Load(r);
@@ -287,6 +299,11 @@ namespace XmlNotepad
             Load(filename);
         }
 
+        public bool IsEmpty()
+        {
+            return this.Document.ChildNodes.Count == 0;
+        }
+
         public void Clear()
         {
             this._renamed = null;
@@ -294,7 +311,8 @@ namespace XmlNotepad
             this.Document = new XmlDocument();
             StopFileWatch();
             this._fileName = null;
-            FireModelChanged(ModelChangeType.Reloaded, this._doc);
+            this._dirty = false;
+            FireModelChanged(ModelChangeType.Cleared, this._doc);
         }
 
         public void Save()
@@ -330,6 +348,15 @@ namespace XmlNotepad
             return result;
         }
 
+        bool HasXmlDeclaration
+        {
+            get
+            {
+                XmlDeclaration xmldecl = _doc.FirstChild as XmlDeclaration;
+                return xmldecl != null;
+            }
+        }
+
         public void AddXmlDeclarationWithEncoding()
         {
             XmlDeclaration xmldecl = _doc.FirstChild as XmlDeclaration;
@@ -362,17 +389,24 @@ namespace XmlNotepad
             {
                 StopFileWatch();
                 XmlWriterSettings s = new XmlWriterSettings();
-                EncodingHelpers.InitializeWriterSettings(s, this._site);
 
                 var encoding = GetEncoding();
                 s.Encoding = encoding;
+
                 bool noBom = false;
+                bool useNewWriter = true;
                 if (this._site != null)
                 {
+                    EncodingHelpers.InitializeWriterSettings(s, this._site);
+                    if (!this.HasXmlDeclaration)
+                    {
+                        s.OmitXmlDeclaration = true;
+                    }
+
                     Settings settings = (Settings)this._site.GetService(typeof(Settings));
                     if (settings != null)
                     {
-                        noBom = (bool)settings["NoByteOrderMark"];
+                        noBom = settings.GetBoolean("NoByteOrderMark", false);
                         if (noBom)
                         {
                             // then we must have an XML declaration with an encoding attribute.
@@ -380,29 +414,199 @@ namespace XmlNotepad
                         }
                     }
                 }
-                if (noBom)
+
+                MemoryStream ms = new MemoryStream();
+                if (useNewWriter)
                 {
-                    MemoryStream ms = new MemoryStream();
-                    using (XmlWriter w = XmlWriter.Create(ms, s))
+                    using (var writer = XmlWriter.Create(ms, s))
                     {
-                        _doc.Save(w);
+                        this.WriteTo(writer);
                     }
-                    ms.Seek(0, SeekOrigin.Begin);
-
-                    EncodingHelpers.WriteFileWithoutBOM(ms, filename);
-
                 }
                 else
                 {
-                    using (XmlWriter w = XmlWriter.Create(filename, s))
+                    using (XmlTextWriter w = new XmlTextWriter(ms, encoding))
                     {
-                        _doc.Save(w);
+                        EncodingHelpers.InitializeWriterSettings(w, this._site);
+                        this.WriteTo(w);
                     }
                 }
+
+                if (noBom)
+                {
+                    using (var stm = new MemoryStream(ms.ToArray()))
+                    {
+                        EncodingHelpers.WriteFileWithoutBOM(stm, filename);
+                    }
+                }
+                else
+                {
+                    // doing the write this way ensures that an XML exception doesn't result in 
+                    // wiping the previous state of the file on disk.
+                    File.WriteAllBytes(filename, ms.ToArray());
+                }            
             }
             finally
             {
                 StartFileWatch();
+            }
+        }
+
+        private void WriteTo(XmlWriter w)
+        {
+            // The new XmlWriter.Create method returns a writer that is strict and does not
+            // allow xmlns attributes that override the parent element NamespaceURI.  Fixing that
+            // in the XmlElement tree would require very complex (and very slow) recreation of
+            // XML Element nodes in the tree (and therefore all their children also) every time an
+            // xmlns attribute is modified.  So we deal with that here instead during save by calling
+            // the XmlWriter ourselves with the correct namespaces on the WriteStartElement call.
+            XmlNode xmlNode = _doc.FirstChild;
+            if (xmlNode == null)
+            {
+                return;
+            }
+            if (w.WriteState == WriteState.Start)
+            {
+                if (xmlNode is XmlDeclaration)
+                {
+                    if (Standalone.Length == 0)
+                    {
+                        w.WriteStartDocument();
+                    }
+                    else if (Standalone == "yes")
+                    {
+                        w.WriteStartDocument(standalone: true);
+                    }
+                    else if (Standalone == "no")
+                    {
+                        w.WriteStartDocument(standalone: false);
+                    }
+                    xmlNode = xmlNode.NextSibling;
+                }
+                else
+                {
+                    w.WriteStartDocument();
+                }
+            }
+            var scope = new XmlNamespaceManager(_doc.NameTable);
+            while (xmlNode != null)
+            {
+                WriteNode(xmlNode, w, scope);
+                xmlNode = xmlNode.NextSibling;
+            }
+            w.Flush();
+        }
+
+        internal void WriteNode(XmlNode node, XmlWriter w, XmlNamespaceManager scope)
+        {
+            if (node is XmlElement e)
+            {
+                WriteElementTo(w, e, scope);
+            }
+            else
+            {
+                node.WriteTo(w);
+            }
+        }
+
+        private void WriteElementTo(XmlWriter writer, XmlElement e, XmlNamespaceManager scope)
+        {
+            XmlNode xmlNode = e;
+            XmlNode xmlNode2 = e;
+            while (true)
+            {
+                e = xmlNode2 as XmlElement;
+                if (e != null)
+                {
+                    scope.PushScope();
+                    for (int i = 0; i < e.Attributes.Count; i++)
+                    {
+                        XmlAttribute xmlAttribute = e.Attributes[i];
+                        if (xmlAttribute.NamespaceURI == XmlStandardUris.XmlnsUri)
+                        {
+                            var prefix = xmlAttribute.Prefix == "xmlns" ? xmlAttribute.LocalName : "";
+                            scope.AddNamespace(prefix, xmlAttribute.Value);
+                        }
+                    }
+
+                    WriteStartElement(writer, e, scope);
+                    if (e.IsEmpty)
+                    {
+                        writer.WriteEndElement();
+                        scope.PopScope();
+                    }
+                    else
+                    {
+                        if (e.LastChild != null)
+                        {
+                            xmlNode2 = e.FirstChild;
+                            continue;
+                        }
+                        writer.WriteFullEndElement();
+                        scope.PopScope();
+                    }
+                }
+                else
+                {
+                    WriteNode(xmlNode2, writer, scope);
+                }
+                while (xmlNode2 != xmlNode && xmlNode2 == xmlNode2.ParentNode.LastChild)
+                {
+                    xmlNode2 = xmlNode2.ParentNode;
+                    writer.WriteFullEndElement();
+                    scope.PopScope();
+                }
+                if (xmlNode2 != xmlNode)
+                {
+                    xmlNode2 = xmlNode2.NextSibling;
+                    continue;
+                }
+                break;
+            }
+        }
+
+        private void WriteStartElement(XmlWriter w, XmlElement e, XmlNamespaceManager scope)
+        {
+            // Fix up the element namespace so that the XmlWriter doesn't complain!
+            var ns = scope.LookupNamespace(e.Prefix);
+            w.WriteStartElement(e.Prefix, e.LocalName, ns);
+            if (e.HasAttributes)
+            {
+                XmlAttributeCollection xmlAttributeCollection = e.Attributes;
+                for (int i = 0; i < xmlAttributeCollection.Count; i++)
+                {
+                    XmlAttribute xmlAttribute = xmlAttributeCollection[i];
+                    xmlAttribute.WriteTo(w);
+                }
+            }
+            var info = this.GetTypeInfo(e);
+            if (info != null)
+            {
+                // Figure out if the content type is mixed, simple or empty (attributes only).
+                bool mixed = true;
+                if (info.ContentType == XmlSchemaContentType.Empty || info.ContentType == XmlSchemaContentType.TextOnly)
+                {
+                    // no child elements or text allowed.
+                    mixed = false;
+                }
+                if (!mixed)
+                {
+                    // this hack tricks the inner Utf8RawTextWriter to not write indentation
+                    w.WriteString("");
+                }
+            }
+        }
+
+
+        public string Standalone
+        {
+            get
+            {
+                if (this._doc.FirstChild is XmlDeclaration x)
+                {
+                    return x.Standalone;
+                }
+                return "";
             }
         }
 
@@ -753,7 +957,8 @@ namespace XmlNotepad
         NodeRemoved,
         NamespaceChanged,
         BeginBatchUpdate,
-        EndBatchUpdate
+        EndBatchUpdate,
+        Cleared
     }
 
     public class ModelChangedEventArgs : EventArgs

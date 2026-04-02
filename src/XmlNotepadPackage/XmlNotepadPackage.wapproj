@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(SolutionDir)/Version/Version.props" />
+  <Import Project="$(ProjectDir)..\Version\Version.props" />
   <PropertyGroup Condition="'$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '15.0'">
     <VisualStudioVersion>15.0</VisualStudioVersion>
   </PropertyGroup>
@@ -52,11 +52,11 @@
   <Import Project="$(WapProjPath)\Microsoft.DesktopBridge.props" />
   <PropertyGroup>
     <ProjectGuid>026f426d-0a2b-4782-98fd-717d91fae019</ProjectGuid>
-    <TargetPlatformVersion>10.0.18362.0</TargetPlatformVersion>
-    <TargetPlatformMinVersion>10.0.18362.0</TargetPlatformMinVersion>
+    <TargetPlatformVersion>10.0.17763.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <DefaultLanguage>en-US</DefaultLanguage>
     <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
-    <PackageCertificateThumbprint>50D58171E20BB6188B199ACA7C20A26DA0DFBF35</PackageCertificateThumbprint>
+    <PackageCertificateThumbprint>F0DEC4CF1C07CB9E44E29D98389072C8579D5E79</PackageCertificateThumbprint>
     <EntryPointProjectUniqueName>..\Application\Application.csproj</EntryPointProjectUniqueName>
     <GenerateAppInstallerFile>True</GenerateAppInstallerFile>
     <AppxPackageSigningTimestampServerUrl>http://timestamp.sectigo.com</AppxPackageSigningTimestampServerUrl>
@@ -66,7 +66,7 @@
     <AppxBundlePlatforms>neutral</AppxBundlePlatforms>
     <AppInstallerUri>https://lovettsoftwarestorage.blob.core.windows.net/downloads/XmlNotepad.Net/$(ApplicationVersion)/</AppInstallerUri>
     <HoursBetweenUpdateChecks>24</HoursBetweenUpdateChecks>
-    <AppxPackageDir>$(SolutionDir)XmlNotepadPackage\AppPackages\$(ApplicationVersion)\</AppxPackageDir>
+    <AppxPackageDir>$(ProjectDir)..\XmlNotepadPackage\AppPackages\$(ApplicationVersion)\</AppxPackageDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <AppxBundle>Always</AppxBundle>

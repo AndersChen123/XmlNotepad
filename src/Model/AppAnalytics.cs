@@ -7,11 +7,10 @@ using System.Threading.Tasks;
 
 namespace XmlNotepad
 {
-    public class AppAnalytics
+    public partial class AppAnalytics
     {
         private const string HostName = "microsoft.github.io";
         private const string TrackingId = "G-130J0SE94H";
-        private const string ApiKey = "DGyp7J4BQw-h8s-vlH_BDw";
         private string _clientId;
         private bool _formOptions; // did they use the options dialog during this session?
         private bool _formSchemas;
@@ -23,7 +22,12 @@ namespace XmlNotepad
         public AppAnalytics(string clientId, bool enabled)
         {
             this._clientId = clientId;
-            this._enabled = enabled;
+            this._enabled = enabled && !string.IsNullOrEmpty(ApiKey);
+        }
+
+        public void SetEnabled(bool enabled)
+        {
+            this._enabled = enabled && !string.IsNullOrEmpty(ApiKey);
         }
 
         private async void SendMeasurement(string path, string title)
@@ -99,6 +103,15 @@ namespace XmlNotepad
             {
                 _xsltView = true;
                 SendMeasurement("/App/XsltView", "XsltView");
+            }
+        }
+
+        public void RecordStatistics()
+        {
+            if (this._enabled && !_xsltView)
+            {
+                _xsltView = true;
+                SendMeasurement("/App/Stats", "Stats");
             }
         }
     }

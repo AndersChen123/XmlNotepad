@@ -2,16 +2,26 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [ master ]
+    paths-ignore:
+      - 'docs/**'
+    branches:
+      - master
   pull_request:
-    branches: [ master ]
+    paths-ignore:
+      - 'docs/**'
+    branches:
+      - master
   schedule:
     - cron: '40 14 * * 6'
+
+permissions:
+    security-events: write
+    contents: read
 
 jobs:
   analyze:
     name: Analyze
-    runs-on: windows-2019
+    runs-on: windows-latest
 
     strategy:
       fail-fast: false
@@ -20,19 +30,19 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6.0.2
 
     - name: Setup NuGet.exe
-      uses: NuGet/setup-nuget@v1
+      uses: NuGet/setup-nuget@v2
 
     - name: Setup MSBuild.exe
-      uses: microsoft/setup-msbuild@v1.3.1
+      uses: microsoft/setup-msbuild@v3.0.0
 
     - name: Restore the application
       run: nuget restore ./src/XmlNotepad.sln
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v2
+      uses: github/codeql-action/init@v4.34.1
       with:
         queries: security-and-quality
         languages: csharp
@@ -42,7 +52,9 @@ jobs:
       run: nuget restore ./src/XmlNotepad.sln
 
     - name: Build the application
-      run: msbuild ./src/XmlNotepad.sln /p:Configuration=Release /verbosity:minimal /p:UseSharedCompilation=False
+      run: |
+        echo namespace XmlNotepad { public partial class AppAnalytics { private const string ApiKey=""; } }  >> .\src\Model\ApiKey.cs
+        msbuild ./src/XmlNotepad.sln /p:Configuration=Release "/p:Platform=Any CPU" /verbosity:minimal /p:UseSharedCompilation=False
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+      uses: github/codeql-action/analyze@v4.34.1

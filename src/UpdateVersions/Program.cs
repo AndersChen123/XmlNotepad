@@ -30,6 +30,7 @@ namespace UpdateVersions
         public string MasterVersionFile { get; set; }
         public string CSharpVersionFile { get; set; }
         public string WixFile { get; set; }
+        public string WixBundleFile { get; set; }
         public string ApplicationProjectFile { get; set; }
         public string AppManifestFile { get; set; }
         public string DropDir { get; set; }
@@ -65,7 +66,7 @@ namespace UpdateVersions
 
             bool result = UpdateWebView2Version(doc);
             result &= UpdateCSharpVersion(v);
-            result &= UpdateWixDoc(v);
+            result &= UpdateWixDocs(v);
             result &= UpdatePackageManifest(v);
             result &= UpdateApplicationProjectFile(v);
             result &= CheckUpdatesFile(v);
@@ -76,24 +77,18 @@ namespace UpdateVersions
         {
             var dir = Path.GetDirectoryName(this.ApplicationProjectFile);
             var xmlnotepadProject = Path.Combine(dir, "..", "XmlNotepad", "XmlNotepad.csproj");
-            var doc = XDocument.Load(xmlnotepadProject);
-            var ns = doc.Root.Name.Namespace;
-            var prefix = "Microsoft.Web.WebView2.Core";
-            string version = null;
-            foreach (var e in doc.Descendants(ns + "Reference"))
-            {
-                string include = (string)e.Attribute("Include");
-                if (include.StartsWith(prefix))
-                {
-                    var name = new AssemblyName(include);
-                    version = name.Version.ToString();
-                    break;
-                }
-            }
+            string version = GetWebView2Version(xmlnotepadProject);
             if (!string.IsNullOrEmpty(version))
             {
+                var appVersion = GetWebView2Version(this.ApplicationProjectFile);
+                if (appVersion != null && appVersion != version)
+                {
+                    throw new Exception("WebView2 version is inconsistent in " + this.ApplicationProjectFile +
+                        $". XmlNotepad has {version} while application has {appVersion}");
+                }
+
                 WebView2Version = version;
-                ns = props.Root.Name.Namespace;
+                var ns = props.Root.Name.Namespace;
                 var wve = props.Root.Descendants(ns + "WebView2Version").FirstOrDefault();
                 if (wve != null)
                 {
@@ -114,6 +109,23 @@ namespace UpdateVersions
 
             Log.LogError("Could not find Microsoft.Web.WebView2.Core version in XmlNotepad.csproj");
             return false;
+        }
+
+        private string GetWebView2Version(string projectFile)
+        {
+            var doc = XDocument.Load(projectFile);
+            var ns = doc.Root.Name.Namespace;
+            var prefix = "Microsoft.Web.WebView2.Core";
+            foreach (var e in doc.Descendants(ns + "Reference"))
+            {
+                string include = (string)e.Attribute("Include");
+                if (include.StartsWith(prefix))
+                {
+                    var name = new AssemblyName(include);
+                    return name.Version.ToString();
+                }
+            }
+            return null;
         }
 
         private bool UpdateCSharpVersion(Version v)
@@ -300,30 +312,33 @@ namespace UpdateVersions
             return true;
         }
 
-        private bool UpdateWixDoc(Version v)
+        private bool UpdateWixDocs(Version v)
         {
-            if (!System.IO.File.Exists(this.WixFile))
+            foreach (var name in new string[] { this.WixFile, WixBundleFile }) 
             {
-                Log.LogError("WIX file not found: " + this.WixFile);
-                return false;
-            }
-
-            try
-            {
-                XDocument doc = XDocument.Load(this.WixFile);
-                bool result = UpdateWixVersion(doc, v);
-                result &= UpdateDropFiles(doc, v);
-                result &= UpdateFeature(doc);
-                if (result)
+                if (!System.IO.File.Exists(name))
                 {
-                    Log.LogMessage("SyncVersions updating " + this.WixFile);
-                    doc.Save(this.WixFile);
+                    Log.LogError("WIX file not found: " + name);
+                    return false;
                 }
-            }
-            catch (Exception ex)
-            {
-                Log.LogError("file '" + this.WixFile + "' edit failed: " + ex.Message);
-                return false;
+
+                try
+                {
+                    XDocument doc = XDocument.Load(name);
+                    bool result = UpdateWixVersion(doc, v);
+                    result |= UpdateDropFiles(doc, v);
+                    result |= UpdateFeature(doc);
+                    if (result)
+                    {
+                        Log.LogMessage("SyncVersions updating " + name);
+                        doc.Save(name);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.LogError("file '" + name + "' edit failed: " + ex.Message);
+                    return false;
+                }
             }
             // return that there is no error.
             return true;
@@ -333,6 +348,10 @@ namespace UpdateVersions
         {
             XNamespace ns = wixdoc.Root.Name.Namespace;
             XElement product = wixdoc.Root.Element(ns + "Product");
+            if (product == null)
+            {
+                return false;
+            }
             XElement feature = product.Element(ns + "Feature");
 
             List<string> components = new List<string>();
@@ -375,6 +394,10 @@ namespace UpdateVersions
         {
             XNamespace ns = wixdoc.Root.Name.Namespace;
             XElement product = wixdoc.Root.Element(ns + "Product");
+            if (product == null)
+            {
+                product = wixdoc.Root.Element(ns + "Bundle");
+            }
             if (v.ToString() != (string)product.Attribute("Version"))
             {
                 product.SetAttributeValue("Version", v.ToString());
@@ -396,10 +419,12 @@ namespace UpdateVersions
             {
                 XNamespace ns = wixdoc.Root.Name.Namespace;
                 XElement product = wixdoc.Root.Element(ns + "Product");
-
-                foreach (string subdir in new string[] { "Help", "samples" })
+                if (product != null)
                 {
-                    GetOrCreateDirRef(wixdoc, Path.Combine(this.DropDir, subdir));
+                    foreach (string subdir in new string[] { "samples" })
+                    {
+                        GetOrCreateDirRef(wixdoc, Path.Combine(this.DropDir, subdir));
+                    }
                 }
             }
             catch (Exception ex)
@@ -599,12 +624,21 @@ namespace UpdateVersions
             sync.MasterVersionFile = Path.Combine(solutionPath, "Version", "Version.props");
             sync.CSharpVersionFile = Path.Combine(solutionPath, "Version", "Version.cs");
             sync.WixFile = Path.Combine(solutionPath, "XmlNotepadSetup", "Product.wxs");
+            sync.WixBundleFile = Path.Combine(solutionPath, "XmlNotepadBundle", "Bundle.wxs"); 
             sync.ApplicationProjectFile = Path.Combine(solutionPath, "Application", "Application.csproj");
             sync.AppManifestFile = Path.Combine(solutionPath, "XmlNotepadPackage", "Package.appxmanifest");
             sync.DropDir = Path.Combine(solutionPath, "drop");
             sync.UpdatesFile = Path.Combine(solutionPath, "Updates", "Updates.xml");
-            bool rc = sync.Execute();
-            return rc ? 0 : 1;
+            try
+            {
+                bool rc = sync.Execute();
+                return rc ? 0 : 1;
+            } 
+            catch (Exception ex)
+            {
+                sync.Log.LogError(ex.Message);
+                return 2;
+            }
         }
     }
 }

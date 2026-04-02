@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Text;
 using System.Xml;
+using XmlNotepad;
 
 namespace Microsoft.Xml
 {
@@ -139,7 +140,7 @@ namespace Microsoft.Xml
             XmlNodeType nt = node.NodeType;
             if (nt == XmlNodeType.Attribute)
             {
-                if (node.NamespaceURI == "http://www.w3.org/2000/xmlns/")
+                if (node.NamespaceURI == XmlStandardUris.XmlnsUri)
                 {
                     if (string.IsNullOrEmpty(node.Prefix) &&
                         node.LocalName == "xmlns")
@@ -253,9 +254,9 @@ namespace Microsoft.Xml
                     {
                         nsmgr.AddNamespace(prefix, nsuri);
                     }
-                    else if (found != node.NamespaceURI)
+                    else if (found != node.NamespaceURI || string.IsNullOrEmpty(prefix))
                     {
-                        // we have a prefix conflict, so need to invent a new 
+                        // we have a prefix conflict, or a default namespace, so need to invent a new 
                         // prefix for this part of the query.
                         int i = _nextPrefix++;
                         int number = (i / 26);

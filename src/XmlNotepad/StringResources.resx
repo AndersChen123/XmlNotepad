@@ -179,6 +179,10 @@ Reason:
     <value>File Changed</value>
     <comment>Message box caption</comment>
   </data>
+  <data name="DirtyWhileFileChangedOnDiskPrompt" xml:space="preserve">
+    <value>The file you are editing has been changed on disk but you also have unsaved edits. Would you like to discard your edits and reload this file?</value>
+    <comment>Message box prompt</comment>
+  </data>
   <data name="FileChangedOnDiskPrompt" xml:space="preserve">
     <value>The file you are editing has been changed on disk.  Would you like to reload this file?</value>
     <comment>Message box prompt</comment>
@@ -483,7 +487,7 @@ Do you want to enable execution of this script code?</value>
     <comment>Tab caption</comment>
   </data>
   <data name="SavedStatus" xml:space="preserve">
-    <value>Saved</value>
+    <value>Saved in {0}</value>
     <comment>Status bar message</comment>
   </data>
   <data name="UpdateAvailableCaption" xml:space="preserve">
@@ -573,6 +577,22 @@ Do you want to enable execution of this script code?</value>
   <data name="EnableUpdateDescription" xml:space="preserve">
     <value>Whether to check for updates periodically</value>
     <comment>Property Grid description</comment>
+  </data>
+  <data name="UpdateFrequency" xml:space="preserve">
+    <value>Update Frequency</value>
+    <comment>Property Grid property name</comment>
+  </data>
+  <data name="UpdateFrequencyDescription" xml:space="preserve">
+    <value>How often to check for updates in dd.hh:mm:ss format</value>
+    <comment>Property Grid description</comment>
+  </data>
+  <data name="UpdateFrequencyMinError" xml:space="preserve">
+    <value>Update Frequency cannot be less than 30 minutes</value>
+    <comment>Property Grid validation error</comment>
+  </data>
+  <data name="UpdateFrequencyFormatError" xml:space="preserve">
+    <value>Update Frequency timespan invalid format, it must be dd.hh:mm:ss.</value>
+    <comment>Property Grid validation error</comment>
   </data>
   <data name="AnalyticsCategory" xml:space="preserve">
     <value>Analytics</value>
@@ -737,6 +757,14 @@ Do you want to enable execution of this script code?</value>
     <value>Long Lines</value>
     <comment>Property Grid Category</comment>
   </data>
+  <data name="AttributesOnNewLineProperty" xml:space="preserve">
+    <value>Attributes on a new line</value>
+    <comment>Property Grid Category</comment>
+  </data>
+  <data name="AttributesOnNewLineDescription" xml:space="preserve">
+    <value>Format each attribute on a new line with matching indentation.</value>
+    <comment>Property Grid description</comment>
+  </data>
   <data name="MaximumLineLengthDescription" xml:space="preserve">
     <value>What is the maximum line length before prompting for reformatting?</value>
     <comment>Property Grid description</comment>
@@ -751,6 +779,15 @@ Do you want to enable execution of this script code?</value>
   </data>
   <data name="MaximumValueLengthProperty" xml:space="preserve">
     <value>Maximum Value Length</value>
+    <comment>Property Grid property name</comment>
+  </data>
+  <data name="MaximumLineIndexDescription" xml:space="preserve">
+    <value>Maximum number of nodes that have indexed line and column information so validation errors can be linked to those lines.
+    This is limited because it takes a lot of extra memory and can make editing very large XML files slower.</value>
+    <comment>Property Grid description</comment>
+  </data>
+  <data name="MaximumLineIndexProperty" xml:space="preserve">
+    <value>Maximum nodes for validation</value>
     <comment>Property Grid property name</comment>
   </data>
   <data name="NoByteOrderMark" xml:space="preserve">
@@ -893,6 +930,14 @@ Do you want to enable execution of this script code?</value>
     <value>Default text editor</value>
     <comment>Property grid name</comment>
   </data>
+  <data name="PromptOnReloadDescription" xml:space="preserve">
+    <value>Whether to prompt before auto-reloading file changed on disk</value>
+    <comment>Property grid description</comment>
+  </data>
+  <data name="PromptOnReload" xml:space="preserve">
+    <value>Prompt before reload</value>
+    <comment>Property grid name</comment>
+  </data>
   <data name="ConfigureDefaultApps" xml:space="preserve">
     <value>Please go to Windows Settings for 'Default Apps' and select 'Choose default apps by file type' add XML Notepad for each file type you want associated with it.</value>
   </data>
@@ -925,5 +970,79 @@ Error: {0}</value>
   <data name="WebView2InstallReady" xml:space="preserve">
     <value>We will download the WebView2 setup program named "MicrosoftEdgeWebview2Setup", and you will find it in your downloads folder.  When the download is finished please run it then restart XML Notepad.</value>
     <comment>Message box prompt</comment>
+  </data>
+  <data name="SchemaAwareNamesDescription" xml:space="preserve">
+    <value>Special names that are promoted even without schema information.</value>
+    <comment>Property Grid description</comment>
+  </data>
+  <data name="SchemaAwareNamesName" xml:space="preserve">
+    <value>Special names</value>
+    <comment>Property Grid name</comment>
+  </data>
+  <data name="SchemaAwareTextDescription" xml:space="preserve">
+    <value>Promote xsd keys and ids from element content up to the element name row in the TreeView.</value>
+    <comment>Property Grid description</comment>
+  </data>
+  <data name="SchemaAwareTextName" xml:space="preserve">
+    <value>Show schema aware text</value>
+    <comment>Property Grid name</comment>
+  </data>
+  <data name="SchemaCategory" xml:space="preserve">
+    <value>Schema Options</value>
+    <comment>Property Grid Category</comment>
+  </data>
+  <data name="SchemaAwareTextColor" xml:space="preserve">
+    <value>Schema aware text color</value>
+    <comment>Property Grid Name</comment>
+  </data>
+  <data name="SchemaAwareTextColorDescription" xml:space="preserve">
+    <value>Color for schema aware text that is promoted to the parent element.</value>
+    <comment>Property Grid Description</comment>
+  </data>
+  <data name="XmlDiffHideIdenticalDescription" xml:space="preserve">
+    <value />
+    <comment>Hide identical elements and attributes to compress the size of the HTML output in large documents.</comment>
+  </data>
+  <data name="XmlDiffHideIdenticalProperty" xml:space="preserve">
+    <value>Hide identical</value>
+    <comment>Property Grid caption</comment>
+  </data>
+  <data name="PreserveWhitespace" xml:space="preserve">
+    <value>Preserve Whitespace</value>
+    <comment>Property Grid caption</comment>
+  </data>
+  <data name="PreserveWhitespaceDescription" xml:space="preserve">
+    <value>Preserve all whitespace in XML document so you can see the Whitespace nodes in the tree.</value>
+    <comment>Property Grid description</comment>
+  </data>
+  <data name="TooltipFacetLength" xml:space="preserve">
+    <value>The length of the value must be {0} {1}</value>
+    <comment>
+      This must not end with a period as TooltipFacetJoiner can be appended to it
+      Argument {0} will be the math expression '&lt;' or '&lt;='.
+    </comment>
+  </data>
+  <data name="TooltipFacetJoiner" xml:space="preserve">
+    <value>and {0} {1}</value>
+    <comment>
+      This is used to add another range to TooltipFacetLength or TooltipFacetValue.
+      {0} will be the math expression '&lt;' or '&lt;='.
+    </comment>
+  </data>
+  <data name="TooltipFacetValue" xml:space="preserve">
+    <value>Value must be {0} {1}</value>
+    <comment>
+      This must not end with a period as TooltipFacetJoiner can be appended to it.
+      Argument {0} will be the math expression '&lt;' or '&lt;='.
+    </comment>
+  </data>
+  <data name="TooltipFacetTotalDigits" xml:space="preserve">
+    <value>The total number of digits must not exceed {0}.</value>
+  </data>
+  <data name="NoFileLoaded" xml:space="preserve">
+    <value>No file is loaded into XML Notepad</value>
+  </data>
+  <data name="NoStats" xml:space="preserve">
+    <value>No Stats</value>
   </data>
 </root>
